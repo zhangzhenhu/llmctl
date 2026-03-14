@@ -48,9 +48,9 @@ pub fn init_config_file(path: &Path, format: &str) -> Result<(), String> {
     Ok(())
 }
 
-const DEFAULT_CONFIG_YAML: &str = r#"# LLM Probe Config File
+const DEFAULT_CONFIG_YAML: &str = r#"# llmctl Config File
 #
-# Supported Providers:
+# Supported Providers (provider value):
 #   - openai         : https://api.openai.com/v1
 #   - google/gemini  : https://generativelanguage.googleapis.com/v1beta
 #   - anthropic/claude: https://api.anthropic.com
@@ -59,7 +59,9 @@ const DEFAULT_CONFIG_YAML: &str = r#"# LLM Probe Config File
 #   - xai            : https://api.x.ai/v1
 #   - groq           : https://api.groq.com/openai/v1
 #   - mistral        : https://api.mistral.ai/v1
-#   - openai-compatible / aliyun / dashscope : custom endpoint
+#   - openai-compatible (for Aliyun/DashScope/custom endpoints):
+#       provider: "openai-compatible"
+#       base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
 #
 provider: "openai"
 
@@ -99,10 +101,17 @@ stream: false
 # System prompt
 # system: "You are a helpful assistant."
 
-# Reasoning/Thinking (for supported providers like OpenAI o1, Claude)
-# enable_thinking: false
-# reasoning_effort: "high"  # low, medium, high (OpenAI)
-# reasoning_budget_tokens: 1024  # (Anthropic)
+# Reasoning/Thinking Configuration:
+# For OpenAI (o1 series) - put directly in config:
+#   reasoning_effort: "high"  # low, medium, high
+#
+# For Anthropic - put directly in config:
+# enable_thinking: true
+# thinking_budget_tokens: 1024
+#
+# For openai-compatible (Aliyun/DashScope) - put in extra_body:
+# extra_body:
+#  enable_thinking: true
 
 # Conversation context (messages history)
 context:

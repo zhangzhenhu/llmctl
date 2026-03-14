@@ -75,7 +75,7 @@ impl RuntimeConfig {
 
 #[derive(Parser, Debug)]
 #[command(name = "llmctl")]
-#[command(version = "0.1.3")]
+#[command(version = "0.1.4")]
 #[command(about = "A CLI tool for testing and validating LLM services", long_about = None)]
 pub struct Args {
     #[arg(
