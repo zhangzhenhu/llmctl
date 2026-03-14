@@ -13,6 +13,21 @@ A CLI tool for testing and validating LLM (Large Language Model) services. Suppo
 
 ## Installation
 
+### From Homebrew (Recommended)
+
+```bash
+# Install prebuilt binary
+brew install zhangzhenhu/llmctl/llmctl
+```
+
+Supported platforms: macOS (Apple Silicon & Intel), Linux (arm64 & x86_64)
+
+If your platform is not supported, build from source:
+
+```bash
+brew install --build-from-source zhangzhenhu/llmctl/llmctl
+```
+
 ### From Source
 
 ```bash
@@ -24,7 +39,7 @@ cargo build --release
 
 ### Pre-built Binaries
 
-Download pre-built binaries for macOS, Linux, and Windows from [GitHub Releases](https://github.com/zhangzhenhu/llmct/releases), extract them, and add the aichat binary to your $PATH.
+Download pre-built binaries for macOS, Linux, and Windows from [GitHub Releases](https://github.com/zhangzhenhu/llmctl/releases), extract them, and add the llmctl binary to your $PATH.
 
 ## Quick Start
 
