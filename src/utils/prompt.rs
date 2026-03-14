@@ -111,7 +111,7 @@ stream: false
 #
 # For openai-compatible (Aliyun/DashScope) - put in extra_body:
 # extra_body:
-#  enable_thinking: true
+#   enable_thinking: true
 
 # Conversation context (messages history)
 context:
