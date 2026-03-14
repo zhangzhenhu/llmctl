@@ -3,8 +3,8 @@ use colored::Colorize;
 use std::io::Write;
 
 pub fn stream_output(content: &str, model: &str) {
-    print!("{}: {}", "模型".green(), model.green());
-    println!(" {}", "(流式响应中...)".dimmed());
+    print!("{}: {}", "Model".green(), model.green());
+    println!(" {}", "(streaming...)".dimmed());
     print!("");
     print!("{}", "─".repeat(50).dimmed());
     println!("");
@@ -16,5 +16,5 @@ pub fn stream_output(content: &str, model: &str) {
 pub fn stream_end(duration_ms: u64) {
     println!("");
     println!("{}", "─".repeat(50).dimmed());
-    println!("{}: {} ms", "耗时".yellow(), duration_ms);
+    println!("{}: {} ms", "Duration".yellow(), duration_ms);
 }

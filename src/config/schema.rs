@@ -81,45 +81,58 @@ impl RuntimeConfig {
 
 #[derive(Parser, Debug)]
 #[command(name = "llmctl")]
-#[command(version = "0.1.0")]
-#[command(about = "LLM 服务验证 CLI 工具", long_about = None)]
+#[command(version = "0.1.1")]
+#[command(about = "A CLI tool for testing and validating LLM services", long_about = None)]
 pub struct Args {
-    #[arg(short = 'c', long, value_name = "PATH", help = "指定配置文件路径")]
+    #[arg(short = 'c', long, value_name = "PATH", help = "Config file path")]
     pub config: Option<PathBuf>,
 
-    #[arg(short, long, value_name = "STRING", help = "指定模型名称")]
+    #[arg(short, long, value_name = "STRING", help = "Model name")]
     pub model: Option<String>,
 
-    #[arg(short, long, help = "列出当前服务商支持的所有模型")]
+    #[arg(short, long, help = "List available models from provider")]
     pub list: bool,
 
-    #[arg(long, value_name = "STRING", help = "追加用户消息(可多次使用)")]
+    #[arg(
+        long,
+        value_name = "STRING",
+        help = "Append user message (can be used multiple times)"
+    )]
     pub message: Vec<String>,
 
-    #[arg(short, long, value_name = "STRING", help = "指定模型服务商")]
+    #[arg(short, long, value_name = "STRING", help = "Model provider")]
     pub provider: Option<String>,
 
-    #[arg(short, long, value_name = "STRING", help = "指定 API base_url")]
+    #[arg(short, long, value_name = "STRING", help = "API base URL")]
     pub url: Option<String>,
 
-    #[arg(short, long, value_name = "STRING", help = "指定 API Key")]
+    #[arg(short, long, value_name = "STRING", help = "API Key")]
     pub secret: Option<String>,
 
-    #[arg(long, help = "启用流式返回")]
+    #[arg(long, help = "Enable streaming response")]
     pub stream: bool,
 
     #[arg(
         short,
         long,
         value_name = "FORMAT",
-        help = "初始化配置文件格式(yaml/json)"
+        help = "Initialize config file format (yaml/json)"
     )]
     pub init: Option<String>,
 
-    #[arg(long, value_name = "PATH", help = "自定义初始化配置文件路径")]
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Custom config file path for initialization"
+    )]
     pub init_path: Option<PathBuf>,
 
-    #[arg(short = 't', long, value_name = "INPUT", help = "配置文件格式转换")]
+    #[arg(
+        short = 't',
+        long,
+        value_name = "INPUT",
+        help = "Convert config file format"
+    )]
     pub convert: Option<Vec<PathBuf>>,
 }
 

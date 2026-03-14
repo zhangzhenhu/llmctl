@@ -18,8 +18,16 @@ use std::path::PathBuf;
 // use std::time::Instant;
 use utils::init_config_file;
 
+use clap::CommandFactory;
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    if std::env::args().len() == 1 {
+        let _ = Args::command().print_help();
+        println!();
+        std::process::exit(0);
+    }
 
     let args = Args::parse();
 
@@ -76,7 +84,7 @@ fn handle_init(args: &Args) -> Result<(), LlmProbeError> {
 
     init_config_file(&output_path, format).map_err(|e| LlmProbeError::ApiError(e))?;
 
-    print_success(&format!("配置文件已创建: {}", output_path.display()));
+    print_success(&format!("Config file created: {}", output_path.display()));
     Ok(())
 }
 
@@ -88,10 +96,10 @@ fn handle_convert(convert_paths: &Vec<PathBuf>) -> Result<(), LlmProbeError> {
 }
 
 fn handle_list(backend: &LLMClient) -> Result<(), LlmProbeError> {
-    print_info("正在获取模型列表...");
+    print_info("Fetching model list...");
 
     let runtime = tokio::runtime::Runtime::new()
-        .map_err(|_| LlmProbeError::ApiError("创建运行时失败".to_string()))?;
+        .map_err(|_| LlmProbeError::ApiError("Failed to create runtime".to_string()))?;
     let models = runtime.block_on(backend.list_models())?;
 
     format_model_list(&models);
@@ -104,7 +112,7 @@ fn handle_chat(
     backend: LLMClient,
 ) -> Result<(), LlmProbeError> {
     let runtime = tokio::runtime::Runtime::new()
-        .map_err(|_| LlmProbeError::ApiError("创建运行时失败".to_string()))?;
+        .map_err(|_| LlmProbeError::ApiError("Failed to create runtime".to_string()))?;
 
     let messages = config.context.clone();
 
@@ -112,8 +120,6 @@ fn handle_chat(
         runtime.block_on(backend.stream_chat(messages, &config.model))?;
         Ok(())
     } else {
-        // print_info("正在发送请求...");
-
         let response = runtime.block_on(backend.chat_completion(messages, &config.model))?;
 
         format_chat_response(&response);
