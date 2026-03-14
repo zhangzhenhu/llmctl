@@ -92,7 +92,7 @@ jobs:
 
       - name: Install cross
         if: matrix.use-cross
-        run: cargo install --git https://github.com/cross-rs/cross --force
+        run: cargo install cross --git https://github.com/cross-rs/cross  --force
 
       - name: Overwrite build command env variable
         if: matrix.use-cross
