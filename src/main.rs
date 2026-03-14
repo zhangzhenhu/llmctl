@@ -74,15 +74,25 @@ fn run(args: Args) -> Result<(), LlmProbeError> {
 }
 
 fn handle_init(args: &Args) -> Result<(), LlmProbeError> {
-    let format = args.init.as_deref().unwrap_or("yaml");
+    let format_input = args.init.as_deref().unwrap_or("yaml");
 
-    let output_path = if let Some(path) = &args.init_path {
-        path.clone()
+    let (output_path, format) = if let Some(path) = &args.init_path {
+        let ext = path.extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("yaml");
+        (path.clone(), ext.to_string())
+    } else if format_input.contains('.') || (format_input != "yaml" && format_input != "json") {
+        let path = PathBuf::from(format_input);
+        let ext = path.extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("yaml")
+            .to_string();
+        (path, ext)
     } else {
-        PathBuf::from(format!("./llmctl.{}", format))
+        (PathBuf::from(format!("./llmctl.{}", format_input)), format_input.to_string())
     };
 
-    init_config_file(&output_path, format).map_err(|e| LlmProbeError::ApiError(e))?;
+    init_config_file(&output_path, &format).map_err(|e| LlmProbeError::ApiError(e))?;
 
     print_success(&format!("Config file created: {}", output_path.display()));
     Ok(())

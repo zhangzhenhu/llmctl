@@ -49,24 +49,62 @@ pub fn init_config_file(path: &Path, format: &str) -> Result<(), String> {
 }
 
 const DEFAULT_CONFIG_YAML: &str = r#"# LLM Probe Config File
-# Provider: openai / gemini (extensible)
+#
+# Supported Providers:
+#   - openai         : https://api.openai.com/v1
+#   - google/gemini  : https://generativelanguage.googleapis.com/v1beta
+#   - anthropic/claude: https://api.anthropic.com
+#   - ollama         : http://localhost:11434 (local)
+#   - deepseek       : https://api.deepseek.com/v1
+#   - xai            : https://api.x.ai/v1
+#   - groq           : https://api.groq.com/openai/v1
+#   - mistral        : https://api.mistral.ai/v1
+#   - openai-compatible / aliyun / dashscope : custom endpoint
+#
 provider: "openai"
 
-# API Base URL
-# OpenAI compatible example: https://api.openai.com/v1
-base_url: "https://api.openai.com/v1"
+# API Base URL (optional, defaults to provider's default URL)
+# Examples:
+#   - https://api.openai.com/v1
+#   - https://generativelanguage.googleapis.com/v1beta
+#   - https://api.anthropic.com
+#   - http://localhost:11434
+#   - https://dashscope.aliyuncs.com/compatible-mode/v1 (Aliyun)
+base_url: ""
 
-# API Key
-# Recommended: set via environment variable LLM_API_KEY to avoid storing in plain text
+# API Key (recommended: set via environment variable LLM_API_KEY)
 api_key: ""
 
-# Default model
-model: "gpt-4"
+# Model name (use -l to list available models for your provider)
+model: "gpt-4o"
 
-# Enable streaming
+# Enable streaming response
 stream: false
 
-# Conversation context
+# Request timeout in seconds (default: 60)
+# timeout_seconds: 60
+
+# Maximum tokens to generate
+# max_tokens: 2048
+
+# Sampling temperature (0.0 - 2.0, higher = more random)
+# temperature: 0.7
+
+# Top-p sampling (0.0 - 1.0)
+# top_p: 1.0
+
+# Top-k sampling
+# top_k: 40
+
+# System prompt
+# system: "You are a helpful assistant."
+
+# Reasoning/Thinking (for supported providers like OpenAI o1, Claude)
+# enable_thinking: false
+# reasoning_effort: "high"  # low, medium, high (OpenAI)
+# reasoning_budget_tokens: 1024  # (Anthropic)
+
+# Conversation context (messages history)
 context:
   - role: "system"
     content: "You are a helpful assistant."
@@ -76,9 +114,9 @@ context:
 
 const DEFAULT_CONFIG_JSON: &str = r#"{
   "provider": "openai",
-  "base_url": "https://api.openai.com/v1",
+  "base_url": "",
   "api_key": "",
-  "model": "gpt-4",
+  "model": "gpt-4o",
   "stream": false,
   "context": [
     {

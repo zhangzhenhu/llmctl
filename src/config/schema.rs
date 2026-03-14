@@ -75,13 +75,23 @@ impl RuntimeConfig {
 
 #[derive(Parser, Debug)]
 #[command(name = "llmctl")]
-#[command(version = "0.1.2")]
+#[command(version = "0.1.3")]
 #[command(about = "A CLI tool for testing and validating LLM services", long_about = None)]
 pub struct Args {
-    #[arg(short = 'c', long, value_name = "PATH", help = "Config file path")]
+    #[arg(
+        short = 'c',
+        long,
+        value_name = "PATH",
+        help = "Config file path (YAML or JSON)"
+    )]
     pub config: Option<PathBuf>,
 
-    #[arg(short, long, value_name = "STRING", help = "Model name")]
+    #[arg(
+        short,
+        long,
+        value_name = "STRING",
+        help = "Model name (e.g., gpt-4o, claude-3-opus)"
+    )]
     pub model: Option<String>,
 
     #[arg(short, long, help = "List available models from provider")]
@@ -90,17 +100,32 @@ pub struct Args {
     #[arg(
         long,
         value_name = "STRING",
-        help = "Append user message (can be used multiple times)"
+        help = "Append user message to context (can be used multiple times)"
     )]
     pub message: Vec<String>,
 
-    #[arg(short, long, value_name = "STRING", help = "Model provider")]
+    #[arg(
+        short,
+        long,
+        value_name = "STRING",
+        help = "Model provider: openai, google/gemini, anthropic/claude, ollama, deepseek, xai, groq, mistral, openai-compatible"
+    )]
     pub provider: Option<String>,
 
-    #[arg(short, long, value_name = "STRING", help = "API base URL")]
+    #[arg(
+        short,
+        long,
+        value_name = "STRING",
+        help = "API base URL (overrides provider default)"
+    )]
     pub url: Option<String>,
 
-    #[arg(short, long, value_name = "STRING", help = "API Key")]
+    #[arg(
+        short,
+        long,
+        value_name = "STRING",
+        help = "API Key (or set LLM_API_KEY env var)"
+    )]
     pub secret: Option<String>,
 
     #[arg(long, help = "Enable streaming response")]
@@ -110,7 +135,7 @@ pub struct Args {
         short,
         long,
         value_name = "FORMAT",
-        help = "Initialize config file format (yaml/json)"
+        help = "Initialize config file: yaml, json, or custom filename (e.g., myconfig.yaml)"
     )]
     pub init: Option<String>,
 
@@ -125,7 +150,7 @@ pub struct Args {
         short = 't',
         long,
         value_name = "INPUT",
-        help = "Convert config file format"
+        help = "Convert config file format (input file, optional output file)"
     )]
     pub convert: Option<Vec<PathBuf>>,
 }
