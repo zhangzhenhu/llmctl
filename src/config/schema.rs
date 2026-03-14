@@ -17,18 +17,15 @@ pub struct FileConfig {
     pub model: Option<String>,
     pub stream: Option<bool>,
     pub context: Option<Vec<Message>>,
-    // Builder 配置
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
     pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
-    // Reasoning 配置
     pub reasoning: Option<bool>,
     pub reasoning_effort: Option<String>,
     pub reasoning_budget_tokens: Option<u32>,
-    // 自定义 extra_body
     #[serde(default)]
     pub extra_body: HashMap<String, serde_json::Value>,
 }
@@ -41,18 +38,15 @@ pub struct RuntimeConfig {
     pub model: String,
     pub stream: bool,
     pub context: Vec<Message>,
-    // Builder 配置
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
     pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
-    // Reasoning 配置
     pub reasoning: Option<bool>,
     pub reasoning_effort: Option<String>,
     pub reasoning_budget_tokens: Option<u32>,
-    // 自定义 extra_body
     pub extra_body: HashMap<String, serde_json::Value>,
 }
 
@@ -81,7 +75,7 @@ impl RuntimeConfig {
 
 #[derive(Parser, Debug)]
 #[command(name = "llmctl")]
-#[command(version = "0.1.1")]
+#[command(version = "0.1.2")]
 #[command(about = "A CLI tool for testing and validating LLM services", long_about = None)]
 pub struct Args {
     #[arg(short = 'c', long, value_name = "PATH", help = "Config file path")]

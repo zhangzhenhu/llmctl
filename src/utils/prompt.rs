@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 pub fn prompt_overwrite(path: &Path) -> bool {
-    print!("文件 {} 已存在，是否覆盖？[y/N]: ", path.display());
+    print!("File {} already exists, overwrite? [y/N]: ", path.display());
     io::stdout().flush().ok();
 
     let mut answer = String::new();
@@ -30,7 +30,7 @@ pub fn prompt_confirm(message: &str) -> bool {
 pub fn init_config_file(path: &Path, format: &str) -> Result<(), String> {
     if path.exists() {
         if !prompt_overwrite(path) {
-            return Err("操作已取消".to_string());
+            return Err("Operation cancelled".to_string());
         }
     }
 
@@ -48,25 +48,25 @@ pub fn init_config_file(path: &Path, format: &str) -> Result<(), String> {
     Ok(())
 }
 
-const DEFAULT_CONFIG_YAML: &str = r#"# LLM Probe 配置文件
-# 服务商：openai / gemini（可扩展）
+const DEFAULT_CONFIG_YAML: &str = r#"# LLM Probe Config File
+# Provider: openai / gemini (extensible)
 provider: "openai"
 
-# API 基础地址
-# OpenAI 兼容接口示例：https://api.openai.com/v1
+# API Base URL
+# OpenAI compatible example: https://api.openai.com/v1
 base_url: "https://api.openai.com/v1"
 
-# API 密钥
-# 建议通过环境变量 LLM_API_KEY 设置，避免明文存储
+# API Key
+# Recommended: set via environment variable LLM_API_KEY to avoid storing in plain text
 api_key: ""
 
-# 默认模型
+# Default model
 model: "gpt-4"
 
-# 是否流式返回
+# Enable streaming
 stream: false
 
-# 对话上下文
+# Conversation context
 context:
   - role: "system"
     content: "You are a helpful assistant."

@@ -221,7 +221,7 @@ impl LLMClient {
                         // 先流式输出思考过程
                         if let Some(text) = &choice.delta.reasoning_content {
                             if !in_reasoning {
-                                println!("{}:", "思考过程".cyan());
+                                println!("{}:", "Thinking".cyan());
                                 println!("{}", "─".repeat(50).dimmed());
                                 in_reasoning = true;
                             }
@@ -229,11 +229,10 @@ impl LLMClient {
                             std::io::stdout().flush().ok();
                             reasoning_content.push_str(text);
                         }
-                        // 再流式输出最终内容
                         if let Some(text) = &choice.delta.content {
                             if in_reasoning {
                                 println!("\n{}", "─".repeat(50).dimmed());
-                                println!("{}:", "回答".cyan());
+                                println!("{}:", "Response".cyan());
                                 println!("{}", "─".repeat(50).dimmed());
                                 in_reasoning = false;
                             }
@@ -256,28 +255,22 @@ impl LLMClient {
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        // 打印最终汇总信息
         println!("");
         println!("{}", "─".repeat(50).dimmed());
-        // match usage {
-        // Some(s) => {
         println!(
-            "{}: 输入 {}, 输出 {}",
+            "{}: Input {}, Output {}",
             "Token".dimmed(),
             tokens_input,
             tokens_output
         );
-        // }
-        // None => {}
-        // }
 
         println!(
             "{}: ({}){}",
-            "模型".green(),
+            "Model".green(),
             self.provider_name.green(),
             model.green()
         );
-        println!("{}: {} ms", "耗时".yellow(), duration_ms);
+        println!("{}: {} ms", "Duration".yellow(), duration_ms);
 
         Ok(())
     }
@@ -315,23 +308,21 @@ impl LLMClient {
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        // 打印最终汇总信息
         println!("");
         println!("{}", "─".repeat(50).dimmed());
         println!(
             "{}: ({}){}",
-            "模型".green(),
+            "Model".green(),
             self.provider_name.green(),
             model.green()
         );
-        println!("{}: {} ms", "耗时".yellow(), duration_ms);
+        println!("{}: {} ms", "Duration".yellow(), duration_ms);
         println!("{}", "─".repeat(50).dimmed());
 
         Ok(())
     }
     pub async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmProbeError> {
         let request: Option<&ModelListRequest> = None;
-        // 直接在 match 中调用
         let response = match &self.llm {
             LLMBackendEnum::Standard(llm) => llm.list_models(request).await,
             LLMBackendEnum::WithReasoning(llm_x) => llm_x.list_models(request).await,
@@ -400,7 +391,7 @@ impl LLMClient {
                             .collect();
                         Ok(models)
                     }
-                    Err(e) => Err(LlmProbeError::ApiError(format!("解析模型列表失败: {}", e))),
+                    Err(e) => Err(LlmProbeError::ApiError(format!("Failed to parse model list: {}", e))),
                 }
             }
             Err(e) => Err(map_llm_error(&e.to_string())),
@@ -425,15 +416,15 @@ fn map_llm_error(error: &str) -> LlmProbeError {
         || lower.contains("timeout")
     {
         let friendly_msg = if lower.contains("could not resolve host") {
-            "DNS 解析失败，请检查 API 地址是否正确".to_string()
+            "DNS resolution failed, please check if the API address is correct".to_string()
         } else if lower.contains("connection refused") {
-            "连接被拒绝，请检查 API 地址是否正确".to_string()
+            "Connection refused, please check if the API address is correct".to_string()
         } else if lower.contains("timed out") || lower.contains("timeout") {
-            "请求超时，请检查网络连接或 API 地址".to_string()
+            "Request timeout, please check network connection or API address".to_string()
         } else if lower.contains("could not resolve") {
-            "无法解析域名，请检查 API 地址是否正确".to_string()
+            "Unable to resolve domain name, please check if the API address is correct".to_string()
         } else {
-            format!("网络错误: {}", error)
+            format!("Network error: {}", error)
         };
         return LlmProbeError::ApiError(friendly_msg);
     }
@@ -538,7 +529,7 @@ pub fn create_llm_backend(
                 "medium" => ReasoningEffort::Medium,
                 _ => {
                     return Err(LlmProbeError::ConfigError(format!(
-                        "错误的值 reasoning_effort: {}",
+                        "Invalid reasoning_effort value: {}",
                         v
                     )))
                 }

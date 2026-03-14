@@ -32,7 +32,7 @@ pub fn convert_config(input_path: &Path, output_path: Option<&Path>) -> Result<(
     };
 
     if output.exists() {
-        print!("文件已存在，是否覆盖？[y/N]: ");
+        print!("File already exists, overwrite? [y/N]: ");
         use std::io::Write;
         std::io::stdout().flush().ok();
         let mut answer = String::new();
@@ -53,6 +53,6 @@ pub fn convert_config(input_path: &Path, output_path: Option<&Path>) -> Result<(
 
     fs::write(&output, output_content).map_err(|_| LlmProbeError::WriteFileError)?;
 
-    println!("配置文件转换成功: {}", output.display());
+    println!("Config converted successfully: {}", output.display());
     Ok(())
 }

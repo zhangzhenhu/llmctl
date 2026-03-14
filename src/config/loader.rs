@@ -40,18 +40,15 @@ pub fn merge_configs(file_config: Option<FileConfig>, args: &Args) -> RuntimeCon
         if let Some(context) = fc.context {
             config.context = context;
         }
-        // Builder 配置
         config.max_tokens = fc.max_tokens;
         config.temperature = fc.temperature;
         config.top_p = fc.top_p;
         config.top_k = fc.top_k;
         config.system = fc.system;
         config.timeout_seconds = fc.timeout_seconds;
-        // Reasoning 配置
         config.reasoning = fc.reasoning;
         config.reasoning_effort = fc.reasoning_effort;
         config.reasoning_budget_tokens = fc.reasoning_budget_tokens;
-        // extra_body
         config.extra_body = fc.extra_body;
     }
 
