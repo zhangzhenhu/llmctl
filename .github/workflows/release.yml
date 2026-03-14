@@ -45,7 +45,7 @@ jobs:
             cargo-flags: ""
           - target: i686-pc-windows-msvc
             os: windows-latest
-            use-cross: true
+            # use-cross: false
             cargo-flags: ""
           - target: armv7-unknown-linux-musleabihf
             os: ubuntu-latest
