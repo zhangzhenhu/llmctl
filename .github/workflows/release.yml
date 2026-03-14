@@ -23,7 +23,7 @@ jobs:
             cargo-flags: ""
           - target: aarch64-apple-darwin
             os: macos-latest
-            use-cross: true
+            # use-cross:
             cargo-flags: ""
           # - target: aarch64-pc-windows-msvc
           #   os: windows-latest
