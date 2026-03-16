@@ -31,6 +31,11 @@ fn main() {
 
     let args = Args::parse();
 
+    if args.version {
+        println!("llmctl {}", Args::command().get_version().unwrap_or("0.1.5"));
+        std::process::exit(0);
+    }
+
     if let Err(e) = run(args) {
         print_error(&e.user_message());
         std::process::exit(1);

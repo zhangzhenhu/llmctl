@@ -75,7 +75,7 @@ impl RuntimeConfig {
 
 #[derive(Parser, Debug)]
 #[command(name = "llmctl")]
-#[command(version = "0.1.4")]
+#[command(version = "0.1.5")]
 #[command(about = "A CLI tool for testing and validating LLM services", long_about = None)]
 pub struct Args {
     #[arg(
@@ -130,6 +130,9 @@ pub struct Args {
 
     #[arg(long, help = "Enable streaming response")]
     pub stream: bool,
+
+    #[arg(short, long, help = "Show version information")]
+    pub version: bool,
 
     #[arg(
         short,
