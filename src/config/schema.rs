@@ -75,7 +75,7 @@ impl RuntimeConfig {
 
 #[derive(Parser, Debug)]
 #[command(name = "llmctl")]
-#[command(version = "0.1.5")]
+#[command(version = "0.1.6")]
 #[command(about = "A CLI tool for testing and validating LLM services", long_about = None)]
 pub struct Args {
     #[arg(
@@ -108,9 +108,10 @@ pub struct Args {
         short,
         long,
         value_name = "STRING",
-        help = "Model provider: openai, google/gemini, anthropic/claude, ollama, deepseek, xai, groq, mistral, openai-compatible"
+        default_value = "openai-compatible",
+        help = "Model provider: openai, google/gemini, anthropic/claude, ollama, deepseek, xai, groq, mistral, openai-compatible (default: openai-compatible)"
     )]
-    pub provider: Option<String>,
+    pub provider: String,
 
     #[arg(
         short,
@@ -127,6 +128,14 @@ pub struct Args {
         help = "API Key (or set LLM_API_KEY env var)"
     )]
     pub secret: Option<String>,
+
+    #[arg(
+        short,
+        long,
+        value_name = "STRING",
+        help = "API Key (alias for --secret, or set LLM_API_KEY env var)"
+    )]
+    pub key: Option<String>,
 
     #[arg(long, help = "Enable streaming response")]
     pub stream: bool,

@@ -1,6 +1,6 @@
 [package]
 name = "llmctl"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "A CLI tool for testing and validating LLM (Large Language Model) services. Supports multiple providers including OpenAI, Gemini, Claude, Ollama, DeepSeek, and any OpenAI-compatible APIs. "
 authors = ["zhangzhenhu"]

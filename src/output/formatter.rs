@@ -34,7 +34,7 @@ pub fn format_model_list(models: &[crate::provider::ModelInfo]) {
     println!("{}", "─".repeat(50).dimmed());
 
     for model in models {
-        println!("  - {} ({})", model.name, model.provider);
+        println!("  - {}", model.name);
     }
 
     println!("{}", "─".repeat(50).dimmed());

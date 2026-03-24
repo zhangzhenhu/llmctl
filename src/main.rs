@@ -8,7 +8,7 @@ mod provider;
 mod utils;
 use clap::Parser;
 use config::{
-    convert_config, load_config, merge_configs, search_config_file, validate_config, Args,
+    convert_config, load_config, merge_configs, search_config_file, validate_config_with_list, Args,
 };
 use error::LlmProbeError;
 use output::{format_chat_response, format_model_list, print_error, print_info, print_success};
@@ -32,7 +32,7 @@ fn main() {
     let args = Args::parse();
 
     if args.version {
-        println!("llmctl {}", Args::command().get_version().unwrap_or("0.1.5"));
+        println!("llmctl {}", Args::command().get_version().unwrap_or("0.1.6"));
         std::process::exit(0);
     }
 
@@ -61,7 +61,7 @@ fn run(args: Args) -> Result<(), LlmProbeError> {
 
     let runtime_config = merge_configs(file_config, &args);
 
-    validate_config(&runtime_config)?;
+    validate_config_with_list(&runtime_config, args.list)?;
 
     let backend = create_llm_backend(
         &runtime_config.provider,

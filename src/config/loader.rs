@@ -52,13 +52,15 @@ pub fn merge_configs(file_config: Option<FileConfig>, args: &Args) -> RuntimeCon
         config.extra_body = fc.extra_body;
     }
 
-    if let Some(provider) = &args.provider {
-        config.provider = provider.clone();
-    }
+    config.provider = args.provider.clone();
     if let Some(base_url) = &args.url {
         config.base_url = base_url.clone();
     }
+    // Support both --secret (-s) and --key (-k) for API key
     if let Some(api_key) = &args.secret {
+        config.api_key = api_key.clone();
+    }
+    if let Some(api_key) = &args.key {
         config.api_key = api_key.clone();
     }
     if let Some(model) = &args.model {
@@ -85,6 +87,13 @@ pub fn merge_configs(file_config: Option<FileConfig>, args: &Args) -> RuntimeCon
 }
 
 pub fn validate_config(config: &RuntimeConfig) -> Result<(), LlmProbeError> {
+    validate_config_with_list(config, false)
+}
+
+pub fn validate_config_with_list(
+    config: &RuntimeConfig,
+    is_list_mode: bool,
+) -> Result<(), LlmProbeError> {
     if config.provider.is_empty() {
         return Err(LlmProbeError::MissingRequiredField("provider".to_string()));
     }
@@ -94,14 +103,10 @@ pub fn validate_config(config: &RuntimeConfig) -> Result<(), LlmProbeError> {
     if config.api_key.is_empty() {
         return Err(LlmProbeError::MissingRequiredField("api_key".to_string()));
     }
-    if config.model.is_empty() {
+    // Model is not required when listing models
+    if !is_list_mode && config.model.is_empty() {
         return Err(LlmProbeError::MissingRequiredField("model".to_string()));
     }
-
-    // let valid_providers = ["openai", "gemini"];
-    // if !valid_providers.contains(&config.provider.as_str()) {
-    //     return Err(LlmProbeError::UnsupportedProvider(config.provider.clone()));
-    // }
 
     Ok(())
 }
