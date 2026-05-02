@@ -8,7 +8,7 @@ LLM 服务验证 CLI 工具，用于测试和验证各种大语言模型服务�
 - **OpenAI 兼容接口**：支持阿里云、DashScope、本地部署等任何兼容 OpenAI API 的服务
 - **模型列表**：查看服务商支持的所有模型
 - **流式输出**：实时流式返回聊天内容
-- **思考/推理模式**：支持兼容服务商的推理功能
+- **思考/推理能力**：优先使用 genai 原生能力，兼容 `extra_body.enable_thinking` 与 `reasoning_content`
 - **灵活配置**：支持 YAML/JSON 配置文件或命令行参数
 
 ## 安装
@@ -57,16 +57,16 @@ llmctl --init json
 
 ```yaml
 # llm.yaml
-provider: "openai-compatible"
-base_url: "https://api.openai.com/v1"
-api_key: "your-api-key-here"
-model: "gpt-4o"
-stream: true
+version: 2
+active_provider: openai_main
+providers:
+  openai_main:
+    adapter: openai
+    model: gpt-4o
+    api_key_env: OPENAI_API_KEY
 context:
-  - role: "system"
-    content: "You are a helpful assistant."
-  - role: "user"
-    content: "Hello, world!"
+  - role: system
+    content: You are a helpful assistant.
 ```
 
 ### 3. 开始聊天
@@ -86,16 +86,46 @@ llmctl [选项]
   -c, --config <路径>          配置文件路径
   -m, --model <字符串>         模型名称
   -l, --list                   列出可用模型
+      --list-presets           列出内置 provider 预设并退出
   -p, --provider <字符串>      服务商名称
+  -P, --profile <名称>         使用配置文件中的 provider profile 名称（v2）
   -u, --url <字符串>           API 基础地址
   -s, --secret <字符串>        API 密钥
+      --endpoint <模式>        OpenAI 接口模式: auto|responses|chat-completions
       --stream                 启用流式输出
+      --no-stream              禁用流式输出（仅本次运行）
+      --reasoning <模式>       统一推理控制: off|auto|low|medium|high|xhigh|max|budget:<n>
+      --dry-run                打印解析后的执行计划，不发请求
+      --doctor-config          校验配置并打印诊断
       --init <格式>            初始化配置文件 (yaml/json)
       --init-path <路径>       自定义配置文件路径
-  -t, --convert <输入>         转换配置文件格式
+      -t, --convert <输入>         转换配置文件格式
 ```
 
 ### 使用示例
+
+#### 无配置文件快速启动
+
+```bash
+# OpenAI 快速启动（读取 OPENAI_API_KEY）
+llmctl --provider openai --message "hello"
+
+# 阿里云快速启动（读取 ALIYUN_API_KEY）
+llmctl --provider aliyun --message "你好"
+
+# provider 别名模式同样支持：
+llmctl --provider dashscope --message "你好"
+```
+
+#### 选择配置里的 Profile（v2）
+
+```bash
+# 使用配置中的 providers.anthropic_main
+llmctl -c llm.yaml -P anthropic_main --message "hello"
+
+# 保持 profile 不变，仅临时覆盖 adapter/preset
+llmctl -c llm.yaml -P openai_main --provider dashscope --message "你好"
+```
 
 #### 列出可用模型
 
@@ -141,37 +171,51 @@ llmctl -c llm.yaml
 ### YAML 格式
 
 ```yaml
-provider: "openai-compatible"    # 服务商名称
-base_url: "https://api.openai.com/v1"  # API 基础地址
-api_key: "sk-..."                 # API 密钥
-model: "gpt-4o"                   # 模型名称
-stream: false                     # 启用流式输出
-max_tokens: 2048                 # 最大生成 token 数
-temperature: 0.7                  # 采样温度 (0-2)
-top_p: 1.0                        # top-p 采样
-top_k: 40                         # top-k 采样
-timeout_seconds: 60               # 请求超时时间
-system: "You are a helpful assistant."  # 系统提示词
-context:                          # 对话历史
+version: 2
+active_provider: openai_main
+defaults:
+  stream: true
+  timeout_seconds: 60
+  openai_api: auto
+  reasoning: auto
+providers:
+  openai_main:
+    adapter: openai
+    model: gpt-4o
+    api_key_env: OPENAI_API_KEY
+    reasoning: high
+    max_tokens: 2048
+    temperature: 0.7
+    top_p: 1.0
+context:
   - role: "user"
     content: "你的消息"
 ```
 
 ### 推理配置
 
-支持思考/推理功能的服务商：
+统一使用 `reasoning`：
 
-**OpenAI** (使用 `reasoning_effort`):
 ```yaml
-enable_thinking: true
-reasoning_effort: "high"          # low, medium, high
+defaults:
+  reasoning: auto
+providers:
+  openai_main:
+    reasoning: high
+  gemini_main:
+    reasoning: budget:8000
 ```
 
-**Anthropic** (使用 `reasoning_budget_tokens`):
-```yaml
-enable_thinking: true
-reasoning_budget_tokens: 1024      # 思考过程最大 token 数
-```
+可选值：
+
+- `off`：关闭推理内容捕获，并尽力向服务端发送关闭信号
+- `auto`：由服务商模型自行决定，客户端做归一化解析
+- `low|medium|high|xhigh|max`
+- `budget:<n>`：预算模式（对支持预算映射的服务商生效）
+
+兼容说明：
+
+- provider profile 里的旧字段 `reasoning_effort` 仍可继续使用（兼容别名）。
 
 ## 错误处理
 

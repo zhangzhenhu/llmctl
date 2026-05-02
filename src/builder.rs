@@ -3,8 +3,8 @@
 //! This module provides a flexible builder pattern for creating and configuring
 //! LLM (Large Language Model) provider instances with various settings and options.
 #![allow(dead_code)]
-use crate::backends::OpenAIWithReasoning;
 use llm::{
+    builder::SystemPrompt,
     chat::{
         FunctionTool, ParameterProperty, ParametersSchema, ReasoningEffort, StructuredOutputFormat,
         Tool, ToolChoice,
@@ -629,109 +629,6 @@ impl LLMBuilder {
     /// - No backend is specified
     /// - Required backend feature is not enabled
     /// - Required configuration like API keys are missing
-    pub fn build_openai_compatible(self) -> Result<Box<dyn OpenAIWithReasoning>, LLMError> {
-        log::debug!(
-            "Building LLM provider. backend={:?} model={:?} tools={} tool_choice={:?} temp={:?} enable_web_search={:?} web_search_context={:?} web_search_user_location_type={:?} web_search_user_location_approximate_country={:?} web_search_user_location_approximate_city={:?} web_search_user_location_approximate_region={:?}",
-            self.backend,
-            self.model,
-            self.tools.as_ref().map(|v| v.len()).unwrap_or(0),
-            self.tool_choice,
-            self.temperature,
-            self.openai_enable_web_search,
-            self.openai_web_search_context_size,
-            self.openai_web_search_user_location_type,
-            self.openai_web_search_user_location_approximate_country,
-            self.openai_web_search_user_location_approximate_city,
-            self.openai_web_search_user_location_approximate_region,
-        );
-        let (tools, tool_choice) = self.validate_tool_config()?;
-        // let backend = self
-        //     .backend
-        //     .clone()
-        //     .ok_or_else(|| LLMError::InvalidRequest("No backend specified".to_string()))?;
-        let key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for OpenAI".to_string())
-        })?;
-        // #[allow(unused_variables)]
-        let provider: Box<dyn OpenAIWithReasoning> =
-            Box::new(crate::backends::openai::OpenAICompatible::new(
-                key,
-                self.base_url,
-                self.model,
-                self.max_tokens,
-                self.temperature,
-                self.timeout_seconds,
-                self.system,
-                self.top_p,
-                self.top_k,
-                self.embedding_encoding_format,
-                self.embedding_dimensions,
-                tools,
-                tool_choice,
-                self.normalize_response,
-                self.reasoning_effort,
-                self.json_schema,
-                self.voice,
-                self.extra_body,
-                self.openai_enable_web_search,
-                self.openai_web_search_context_size,
-                self.openai_web_search_user_location_type,
-                self.openai_web_search_user_location_approximate_country,
-                self.openai_web_search_user_location_approximate_city,
-                self.openai_web_search_user_location_approximate_region,
-            )?);
-
-        // #[allow(unreachable_code)]
-        // let mut final_provider: Box<dyn LLMProvider> = if let Some(validator) = self.validator {
-        //     Box::new(llm::validated_llm::ValidatedLLM::new(
-        //         provider,
-        //         validator,
-        //         self.validator_attempts,
-        //     ))
-        // } else {
-        //     provider
-        // };
-
-        // Wrap with resilience retry/backoff if enabled
-        // if self.resilient_enable.unwrap_or(false) {
-        //     let mut cfg = llm::resilient_llm::ResilienceConfig::defaults();
-        //     if let Some(attempts) = self.resilient_attempts {
-        //         cfg.max_attempts = attempts;
-        //     }
-        //     if let Some(base) = self.resilient_base_delay_ms {
-        //         cfg.base_delay_ms = base;
-        //     }
-        //     if let Some(maxd) = self.resilient_max_delay_ms {
-        //         cfg.max_delay_ms = maxd;
-        //     }
-        //     if let Some(j) = self.resilient_jitter {
-        //         cfg.jitter = j;
-        //     }
-        //     final_provider = Box::new(llm::resilient_llm::ResilientLLM::new(final_provider, cfg));
-        // }
-
-        // Wrap with memory capabilities if memory is configured
-        // if let Some(memory) = self.memory {
-        //     let memory_arc = Arc::new(RwLock::new(memory));
-        //     let provider_arc = Arc::from(final_provider);
-        //     final_provider = Box::new(ChatWithMemory::new(
-        //         provider_arc,
-        //         memory_arc,
-        //         None,
-        //         Vec::new(),
-        //         None,
-        //     ));
-        // }
-        Ok(provider)
-    }
-    /// Builds and returns a configured LLM provider instance.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - No backend is specified
-    /// - Required backend feature is not enabled
-    /// - Required configuration like API keys are missing
     pub fn build(self) -> Result<Box<dyn LLMProvider>, LLMError> {
         log::debug!(
             "Building LLM provider. backend={:?} model={:?} tools={} tool_choice={:?} temp={:?} enable_web_search={:?} web_search_context={:?} web_search_user_location_type={:?} web_search_user_location_approximate_country={:?} web_search_user_location_approximate_city={:?} web_search_user_location_approximate_region={:?}",
@@ -828,7 +725,7 @@ impl LLMBuilder {
                         self.max_tokens,
                         self.temperature,
                         self.timeout_seconds,
-                        self.system,
+                        self.system.map(SystemPrompt::String),
                         self.top_p,
                         self.top_k,
                         tools,
@@ -1168,7 +1065,7 @@ impl LLMBuilder {
                     })?;
                     Box::new(llm::backends::azure_openai::AzureOpenAI::new(
                         key,
-                        api_version,
+                        Some(api_version),
                         deployment,
                         endpoint,
                         self.model,
@@ -1248,13 +1145,7 @@ impl LLMBuilder {
         if let Some(memory) = self.memory {
             let memory_arc = Arc::new(RwLock::new(memory));
             let provider_arc = Arc::from(final_provider);
-            final_provider = Box::new(ChatWithMemory::new(
-                provider_arc,
-                memory_arc,
-                None,
-                Vec::new(),
-                None,
-            ));
+            final_provider = Box::new(ChatWithMemory::new(provider_arc, memory_arc));
         }
         Ok(final_provider)
     }
@@ -1406,6 +1297,7 @@ impl FunctionBuilder {
                 description: self.description,
                 parameters: parameters_value,
             },
+            cache_control: None,
         }
     }
 }

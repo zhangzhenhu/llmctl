@@ -8,7 +8,7 @@ A CLI tool for testing and validating LLM (Large Language Model) services. Suppo
 - **OpenAI-Compatible API**: Works with any service that implements the OpenAI API format (Aliyun, DashScope, local deployments, etc.)
 - **Model Listing**: List all available models from your provider
 - **Streaming Responses**: Real-time streaming output for chat responses
-- **Thinking/Reasoning Support**: Enable reasoning mode for compatible providers
+- **Thinking/Reasoning Support**: Uses genai-native capabilities with fallback compatibility for `extra_body.enable_thinking` and `reasoning_content`
 - **Flexible Configuration**: Configure via YAML/JSON files or command-line arguments
 
 ## Installation
@@ -57,16 +57,16 @@ llmctl --init json
 
 ```yaml
 # llm.yaml
-provider: "openai-compatible"
-base_url: "https://api.openai.com/v1"
-api_key: "your-api-key-here"
-model: "gpt-4o"
-stream: true
+version: 2
+active_provider: openai_main
+providers:
+  openai_main:
+    adapter: openai
+    model: gpt-4o
+    api_key_env: OPENAI_API_KEY
 context:
-  - role: "system"
-    content: "You are a helpful assistant."
-  - role: "user"
-    content: "Hello, world!"
+  - role: system
+    content: You are a helpful assistant.
 ```
 
 ### 3. Run a Chat
@@ -86,16 +86,49 @@ Options:
   -c, --config <PATH>          Config file path
   -m, --model <STRING>        Model name
   -l, --list                  List available models
+      --list-presets          List built-in provider presets and exit
   -p, --provider <STRING>     Provider name
+  -P, --profile <NAME>        Provider profile name from config (v2)
   -u, --url <STRING>          API base URL
   -s, --secret <STRING>       API key
+      --endpoint <MODE>       OpenAI API mode: auto|responses|chat-completions
       --stream                Enable streaming response
+      --no-stream             Disable streaming response for this run
+      --reasoning <MODE>      Unified reasoning: off|auto|low|medium|high|xhigh|max|budget:<n>
+      --dry-run               Print resolved execution plan without request
+      --doctor-config         Validate config and print diagnostics
       --init <FORMAT>         Initialize config file (yaml/json)
       --init-path <PATH>      Custom config file path
-  -t, --convert <INPUT>       Convert config format
+      -t, --convert <INPUT>       Convert config format
 ```
 
 ### Examples
+
+#### Quick Start Without Config File
+
+```bash
+# Show all built-in presets
+llmctl --list-presets
+
+# OpenAI quick start (reads OPENAI_API_KEY)
+llmctl --provider openai --message "hello"
+
+# Aliyun quick start (reads ALIYUN_API_KEY)
+llmctl --provider aliyun --message "你好"
+
+# Alias mode also works:
+llmctl --provider dashscope --message "你好"
+```
+
+#### Select Config Profile (v2)
+
+```bash
+# Use providers.anthropic_main from config
+llmctl -c llm.yaml -P anthropic_main --message "hello"
+
+# Keep profile, but temporarily override adapter/preset
+llmctl -c llm.yaml -P openai_main --provider dashscope --message "你好"
+```
 
 #### List Available Models
 
@@ -141,37 +174,51 @@ llmctl -c llm.yaml
 ### YAML Format
 
 ```yaml
-provider: "openai-compatible"    # Provider name
-base_url: "https://api.openai.com/v1"  # API base URL
-api_key: "sk-..."                 # API key
-model: "gpt-4o"                   # Model name
-stream: false                     # Enable streaming
-max_tokens: 2048                  # Max tokens to generate
-temperature: 0.7                  # Sampling temperature (0-2)
-top_p: 1.0                        # Top-p sampling
-top_k: 40                         # Top-k sampling
-timeout_seconds: 60               # Request timeout
-system: "You are a helpful assistant."  # System prompt
-context:                          # Conversation history
+version: 2
+active_provider: openai_main
+defaults:
+  stream: true
+  timeout_seconds: 60
+  openai_api: auto
+  reasoning: auto
+providers:
+  openai_main:
+    adapter: openai
+    model: gpt-4o
+    api_key_env: OPENAI_API_KEY
+    reasoning: high
+    max_tokens: 2048
+    temperature: 0.7
+    top_p: 1.0
+context:
   - role: "user"
     content: "Your message here"
 ```
 
 ### Reasoning Configuration
 
-For providers that support thinking/reasoning:
+Use unified `reasoning`:
 
-**OpenAI** (uses `reasoning_effort`):
 ```yaml
-enable_thinking: true
-reasoning_effort: "high"          # low, medium, high
+defaults:
+  reasoning: auto
+providers:
+  openai_main:
+    reasoning: high
+  gemini_main:
+    reasoning: budget:8000
 ```
 
-**Anthropic** (uses `reasoning_budget_tokens`):
-```yaml
-enable_thinking: true
-reasoning_budget_tokens: 1024      # Max tokens for thinking
-```
+Allowed values:
+
+- `off` (disable reasoning capture; sends best-effort disable signal)
+- `auto` (provider default behavior with normalized parsing)
+- `low|medium|high|xhigh|max`
+- `budget:<n>` (numeric budget for providers that support budget mapping)
+
+Backward compatibility:
+
+- `reasoning_effort` is still accepted as a legacy alias in provider profiles.
 
 ## Error Handling
 

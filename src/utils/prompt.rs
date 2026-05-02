@@ -48,85 +48,96 @@ pub fn init_config_file(path: &Path, format: &str) -> Result<(), String> {
     Ok(())
 }
 
-const DEFAULT_CONFIG_YAML: &str = r#"# llmctl Config File
+const DEFAULT_CONFIG_YAML: &str = r#"# llmctl v2 config
 #
-# Supported Providers (provider value):
-#   - openai         : https://api.openai.com/v1
-#   - google/gemini  : https://generativelanguage.googleapis.com/v1beta
-#   - anthropic/claude: https://api.anthropic.com
-#   - ollama         : http://localhost:11434 (local)
-#   - deepseek       : https://api.deepseek.com/v1
-#   - xai            : https://api.x.ai/v1
-#   - groq           : https://api.groq.com/openai/v1
-#   - mistral        : https://api.mistral.ai/v1
-#   - openai-compatible (for Aliyun/DashScope/custom endpoints):
-#       provider: "openai-compatible"
-#       base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+# Quick usage:
+#   llmctl -c llmctl.yaml --message "hello"
+#   llmctl -c llmctl.yaml --profile openai_main --message "hello"
+#   llmctl --list-presets
 #
-provider: "openai"
+# Versioned schema (current: 2)
+version: 2
 
-# API Base URL (optional, defaults to provider's default URL)
-# Examples:
-#   - https://api.openai.com/v1
-#   - https://generativelanguage.googleapis.com/v1beta
-#   - https://api.anthropic.com
-#   - http://localhost:11434
-#   - https://dashscope.aliyuncs.com/compatible-mode/v1 (Aliyun)
-base_url: ""
+# Default profile used when --profile is not provided
+active_provider: openai_main
 
-# API Key (recommended: set via environment variable LLM_API_KEY)
-api_key: ""
+# Global defaults (can be overridden by provider profile or CLI args)
+defaults:
+  stream: true                        # stream output by default
+  timeout_seconds: 60                # request timeout
+  capture_usage: true                # collect prompt/completion token usage
+  capture_reasoning_content: true    # collect reasoning content when provider supports it
+  normalize_reasoning_content: true  # normalize provider-specific reasoning field
+  openai_api: auto                   # auto | responses | chat_completions (CLI also accepts chat-completions)
+  # reasoning: auto                  # off | auto | low | medium | high | xhigh | max | budget:2048
 
-# Model name (use -l to list available models for your provider)
-model: "gpt-4o"
+# Multiple provider profiles in one file
+providers:
+  # Profile name: openai_main
+  openai_main:
+    adapter: openai                  # openai | aliyun | anthropic | gemini | ollama | deepseek | groq | mistral
+    model: gpt-4o
+    api_key_env: OPENAI_API_KEY      # read API key from env var
+    # api_key: ""                    # optional, not recommended
+    # base_url: https://api.openai.com/v1
+    # temperature: 0.7
+    # max_tokens: 2048
+    # top_p: 1.0
+    # reasoning: high                # unified reasoning control (recommended)
+    # reasoning_effort: medium       # legacy alias, still supported
+    # openai_api: responses
 
-# Enable streaming response
-stream: false
+  # Example: Aliyun / DashScope profile
+  # aliyun_qwen:
+  #   adapter: aliyun
+  #   model: glm-5
+  #   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/
+  #   api_key_env: ALIYUN_API_KEY
+  #   # Some Aliyun models do not expose reasoning. For reasoning tests,
+  #   # prefer models such as: glm-5, deepseek-v3.2
+  #   extra_body:
+  #     enable_thinking: true        # fallback for some OpenAI-compatible providers
 
-# Request timeout in seconds (default: 60)
-# timeout_seconds: 60
-
-# Maximum tokens to generate
-# max_tokens: 2048
-
-# Sampling temperature (0.0 - 2.0, higher = more random)
-# temperature: 0.7
-
-# Top-p sampling (0.0 - 1.0)
-# top_p: 1.0
-
-# Top-k sampling
-# top_k: 40
-
-# System prompt
-# system: "You are a helpful assistant."
-
-# Reasoning/Thinking Configuration:
-# For OpenAI (o1 series) - put directly in config:
-#   reasoning_effort: "high"  # low, medium, high
-#
-# For Anthropic - put directly in config:
-# enable_thinking: true
-# thinking_budget_tokens: 1024
-#
-# For openai-compatible (Aliyun/DashScope) - put in extra_body:
-# extra_body:
-#   enable_thinking: true
-
-# Conversation context (messages history)
+# Shared context messages (appended before CLI --message)
 context:
-  - role: "system"
-    content: "You are a helpful assistant."
-  - role: "user"
-    content: "Hello!"
+  - role: system
+    content: You are a helpful assistant.
+  # - role: user
+  #   content: Hello
 "#;
 
 const DEFAULT_CONFIG_JSON: &str = r#"{
-  "provider": "openai",
-  "base_url": "",
-  "api_key": "",
-  "model": "gpt-4o",
-  "stream": false,
+  "version": 2,
+  "active_provider": "openai_main",
+  "defaults": {
+    "stream": true,
+    "timeout_seconds": 60,
+    "capture_usage": true,
+    "capture_reasoning_content": true,
+    "normalize_reasoning_content": true,
+    "openai_api": "auto",
+    "reasoning": "auto"
+  },
+  "providers": {
+    "openai_main": {
+      "adapter": "openai",
+      "model": "gpt-4o",
+      "api_key_env": "OPENAI_API_KEY",
+      "reasoning": "high",
+      "temperature": 0.7,
+      "max_tokens": 2048,
+      "top_p": 1.0
+    },
+    "aliyun_qwen": {
+      "adapter": "aliyun",
+      "model": "glm-5",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/",
+      "api_key_env": "ALIYUN_API_KEY",
+      "extra_body": {
+        "enable_thinking": true
+      }
+    }
+  },
   "context": [
     {
       "role": "system",
@@ -134,8 +145,49 @@ const DEFAULT_CONFIG_JSON: &str = r#"{
     },
     {
       "role": "user",
-      "content": "Hello!"
+      "content": "Hello"
     }
   ]
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn default_yaml_template_uses_v2_shape() {
+        let parsed: Value = serde_yaml::from_str(DEFAULT_CONFIG_YAML).expect("valid yaml");
+        assert_eq!(parsed.get("version"), Some(&Value::from(2)));
+        assert!(parsed.get("active_provider").is_some());
+        assert!(parsed.get("providers").is_some());
+    }
+
+    #[test]
+    fn default_json_template_uses_v2_shape() {
+        let parsed: Value = serde_json::from_str(DEFAULT_CONFIG_JSON).expect("valid json");
+        assert_eq!(parsed.get("version"), Some(&Value::from(2)));
+        assert!(parsed.get("active_provider").is_some());
+        assert!(parsed.get("providers").is_some());
+    }
+
+    #[test]
+    fn init_config_file_writes_v2_yaml_template() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock drift")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("llmctl_init_test_{stamp}.yaml"));
+
+        init_config_file(&path, "yaml").expect("init config should succeed");
+        let content = std::fs::read_to_string(&path).expect("file should be readable");
+        let parsed: Value = serde_yaml::from_str(&content).expect("written yaml should be valid");
+
+        assert_eq!(parsed.get("version"), Some(&Value::from(2)));
+        assert!(parsed.get("providers").is_some());
+
+        let _ = std::fs::remove_file(path);
+    }
+}

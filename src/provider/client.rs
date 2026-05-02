@@ -1,6 +1,5 @@
 // use crate::backends::OpenAI;
 // use crate::backends::openai::OpenAI;
-use crate::backends::openai_reasoning::OpenAIWithReasoning;
 // use crate::builder::{LLMBackend, LLMBuilder};
 use crate::builder::{LLMBackend, LLMBuilder};
 use crate::config::schema::Message;
@@ -39,16 +38,15 @@ pub struct ModelInfo {
 }
 
 pub enum LLMBackendEnum {
+    // Legacy fallback path keeps a single backend shape to avoid maintaining
+    // a second custom reasoning stream branch in llmctl.
     Standard(Box<dyn LLMProvider>),
-    WithReasoning(Box<dyn OpenAIWithReasoning>),
 }
 pub struct LLMClient {
     llm: LLMBackendEnum,
-    // llm_x: Option<Box<dyn OpenAIWithReasoning>>,
     base_url: String,
     api_key: String,
     provider_name: String,
-    is_openai_compatible: bool,
 }
 
 fn build_chat_message(msg: Message) -> ChatMessage {
@@ -56,7 +54,6 @@ fn build_chat_message(msg: Message) -> ChatMessage {
     let content = msg.content;
 
     let chat_role = match role {
-        "system" => ChatRole::User,
         "assistant" => ChatRole::Assistant,
         _ => ChatRole::User,
     };
@@ -65,21 +62,6 @@ fn build_chat_message(msg: Message) -> ChatMessage {
 }
 
 impl LLMClient {
-    // pub async fn chat_completion(
-    //     &self,
-    //     messages: Vec<Message>,
-    //     model: &str,
-    // ) -> Result<ChatResponse, LlmProbeError> {
-    //     let llm: = match &self.llm {
-    //         LLMBackendEnum::Standard(llm) => llm,
-    //         LLMBackendEnum::WithReasoning(llm) => llm,
-    //     };
-    //     // 假设 OpenAIWithReasoning 也实现了 LLMProvider
-    //     // 或者提供类似的 chat 方法
-    //     return self
-    //         .chat_completion_standard(llm.as_ref(), messages, model)
-    //         .await;
-    // }
     pub async fn chat_completion(
         &self,
         messages: Vec<Message>,
@@ -91,7 +73,6 @@ impl LLMClient {
             messages.into_iter().map(build_chat_message).collect();
         let response = match &self.llm {
             LLMBackendEnum::Standard(llm) => llm.chat(&chat_messages).await,
-            LLMBackendEnum::WithReasoning(llm) => llm.chat(&chat_messages).await,
         };
         // match llm.chat(&chat_messages).await {
         match response {
@@ -120,159 +101,15 @@ impl LLMClient {
             Err(e) => Err(map_llm_error(&e.to_string())),
         }
     }
-    pub async fn chat_completion_standard(
-        &self,
-        llm: &dyn LLMProvider,
-        messages: Vec<Message>,
-        model: &str,
-    ) -> Result<ChatResponse, LlmProbeError> {
-        let start = Instant::now();
-
-        let chat_messages: Vec<ChatMessage> =
-            messages.into_iter().map(build_chat_message).collect();
-
-        match llm.chat(&chat_messages).await {
-            Ok(response) => {
-                // let content = response.text().unwrap_or_default().to_string();
-
-                let (input_tokens, output_tokens) = if let Some(usage) = response.usage() {
-                    (Some(usage.prompt_tokens), Some(usage.completion_tokens))
-                } else {
-                    (None, None)
-                };
-
-                let duration_ms = start.elapsed().as_millis() as u64;
-
-                Ok(ChatResponse {
-                    provider: self.provider_name.clone(),
-                    content: response.text(),
-                    reasoning_content: response.thinking(),
-                    model: model.to_string(),
-                    duration_ms,
-                    input_tokens,
-                    output_tokens,
-                })
-            }
-            Err(e) => Err(map_llm_error(&e.to_string())),
-        }
-    }
     pub async fn stream_chat(
         &self,
         messages: Vec<Message>,
         model: &str,
     ) -> Result<(), LlmProbeError> {
         match &self.llm {
-            LLMBackendEnum::Standard(llm) => {
-                return self.stream_chat_old(llm.as_ref(), messages, model).await;
-            }
-            LLMBackendEnum::WithReasoning(llm) => {
-                return self
-                    .stream_chat_with_reasoning(llm.as_ref(), messages, model)
-                    .await;
-            }
+            LLMBackendEnum::Standard(llm) => self.stream_chat_old(llm.as_ref(), messages, model),
         }
-        // if self.is_openai_compatible {
-        //     return self.stream_chat_with_reasoning(messages, model).await;
-        // }
-        // return self.stream_chat_old(messages, model).await;
-    }
-
-    pub async fn stream_chat_with_reasoning(
-        &self,
-        llm: &dyn OpenAIWithReasoning,
-        messages: Vec<Message>,
-        model: &str,
-    ) -> Result<(), LlmProbeError> {
-        use colored::*;
-        use std::io::Write;
-
-        let start = Instant::now();
-        let mut content = String::new();
-        let mut reasoning_content = String::new();
-        let mut in_reasoning = false;
-
-        let chat_messages: Vec<ChatMessage> =
-            messages.into_iter().map(build_chat_message).collect();
-        let stream = match llm.chat_stream_struct_with_reasoning(&chat_messages).await {
-            Ok(s) => s,
-            Err(e) => return Err(map_llm_error(&e.to_string())),
-        };
-
-        // let stream = match &self.llm {
-        //     LLMBackendEnum::WithReasoning(llm) => {
-        //         match llm.chat_stream_struct_with_reasoning(&chat_messages).await {
-        //             Ok(s) => s,
-        //             Err(e) => return Err(map_llm_error(&e.to_string())),
-        //         }
-        //     }
-        //     _ => return Err(LlmProbeError::RuntimeError("llm_x not inited".to_string())),
-        //     // else => return Err(LlmProbeError::RuntimeError("llm_x not inited".to_string())),
-        // };
-
-        futures::pin_mut!(stream);
-        // let mut usage: Option<Usage> = None;
-        let mut tokens_input: u32 = 0;
-        let mut tokens_output: u32 = 0;
-        while let Some(chunk_result) = stream.next().await {
-            match chunk_result {
-                Ok(chunk) => {
-                    let choice = chunk.choices.first();
-                    if let Some(choice) = choice {
-                        // 先流式输出思考过程
-                        if let Some(text) = &choice.delta.reasoning_content {
-                            if !in_reasoning {
-                                println!("{}:", "Thinking".cyan());
-                                println!("{}", "─".repeat(50).dimmed());
-                                in_reasoning = true;
-                            }
-                            print!("{}", text);
-                            std::io::stdout().flush().ok();
-                            reasoning_content.push_str(text);
-                        }
-                        if let Some(text) = &choice.delta.content {
-                            if in_reasoning {
-                                println!("\n{}", "─".repeat(50).dimmed());
-                                println!("{}:", "Response".cyan());
-                                println!("{}", "─".repeat(50).dimmed());
-                                in_reasoning = false;
-                            }
-                            print!("{}", text);
-                            std::io::stdout().flush().ok();
-                            content.push_str(text);
-                        }
-                    }
-                    if let Some(s) = chunk.usage {
-                        // usage = chunk.usage;
-                        tokens_input += s.prompt_tokens;
-                        tokens_output += s.completion_tokens;
-                    }
-                }
-                Err(e) => {
-                    return Err(map_llm_error(&e.to_string()));
-                }
-            }
-        }
-
-        let duration_ms = start.elapsed().as_millis() as u64;
-
-        println!("");
-        println!("{}", "─".repeat(50).dimmed());
-        println!(
-            "{}: Input {}, Output {}",
-            "Token".dimmed(),
-            tokens_input,
-            tokens_output
-        );
-
-        println!(
-            "{}: ({}){}",
-            "Model".green(),
-            self.provider_name.green(),
-            model.green()
-        );
-        println!("{}: {} ms", "Duration".yellow(), duration_ms);
-
-        Ok(())
+        .await
     }
     pub async fn stream_chat_old(
         &self,
@@ -325,7 +162,6 @@ impl LLMClient {
         let request: Option<&ModelListRequest> = None;
         let response = match &self.llm {
             LLMBackendEnum::Standard(llm) => llm.list_models(request).await,
-            LLMBackendEnum::WithReasoning(llm_x) => llm_x.list_models(request).await,
         };
         match response {
             Ok(response) => {
@@ -391,7 +227,10 @@ impl LLMClient {
                             .collect();
                         Ok(models)
                     }
-                    Err(e) => Err(LlmProbeError::ApiError(format!("Failed to parse model list: {}", e))),
+                    Err(e) => Err(LlmProbeError::ApiError(format!(
+                        "Failed to parse model list: {}",
+                        e
+                    ))),
                 }
             }
             Err(e) => Err(map_llm_error(&e.to_string())),
@@ -471,7 +310,9 @@ pub fn create_llm_backend(
         _ => "https://api.openai.com/v1",
     };
 
-    let final_url = base_url.unwrap_or(default_url);
+    let final_url = base_url
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or(default_url);
 
     let backend = match provider_lower.as_str() {
         "openai" => LLMBackend::OpenAI,
@@ -484,11 +325,10 @@ pub fn create_llm_backend(
         "groq" => LLMBackend::Groq,
         "mistral" => LLMBackend::Mistral,
         "elevenlabs" => LLMBackend::ElevenLabs,
-        _ => LLMBackend::OpenAI,
-        // _ => return Err(LlmProbeError::UnsupportedProvider(provider.to_string())),
+        "openai_compatible" | "openai-compatible" | "aliyun" | "dashscope" => LLMBackend::OpenAI,
+        _ => return Err(LlmProbeError::UnsupportedProvider(provider.to_string())),
     };
     let provider_name = provider_lower.clone();
-    let is_openai_compatible = provider_lower == "openai-compatible";
     let mut builder = LLMBuilder::new()
         .backend(backend.clone())
         .api_key(api_key)
@@ -545,30 +385,36 @@ pub fn create_llm_backend(
     if !final_url.is_empty() {
         builder = builder.base_url(final_url);
     }
-    // println!("is_openai_compatible={}", is_openai_compatible);
-    if is_openai_compatible {
-        match builder.build_openai_compatible() {
-            Ok(llm) => Ok(LLMClient {
-                llm: LLMBackendEnum::WithReasoning(llm),
-                // llm_x: Some(llm),
-                base_url: final_url.to_string(),
-                api_key: api_key.to_string(),
-                provider_name,
-                is_openai_compatible: true,
-            }),
-            Err(e) => Err(map_llm_error(&e.to_string())),
-        }
-    } else {
-        match builder.build() {
-            Ok(llm) => Ok(LLMClient {
-                llm: LLMBackendEnum::Standard(llm),
-                // llm_x: None,
-                base_url: final_url.to_string(),
-                api_key: api_key.to_string(),
-                provider_name,
-                is_openai_compatible: false, // enable_thinking,
-            }),
-            Err(e) => Err(map_llm_error(&e.to_string())),
+    // Legacy fallback path stays on the standard llm backend only.
+    // OpenAI-compatible reasoning streaming is now handled by the genai path.
+    match builder.build() {
+        Ok(llm) => Ok(LLMClient {
+            llm: LLMBackendEnum::Standard(llm),
+            base_url: final_url.to_string(),
+            api_key: api_key.to_string(),
+            provider_name,
+        }),
+        Err(e) => Err(map_llm_error(&e.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_backend_uses_standard_path_for_openai_compatible_alias() {
+        let client = create_llm_backend(
+            "openai-compatible",
+            "test-key",
+            Some("https://example.com/v1"),
+            "test-model",
+            None,
+        )
+        .expect("backend should build");
+
+        match client.llm {
+            LLMBackendEnum::Standard(_) => {}
         }
     }
 }
