@@ -7,6 +7,19 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-02
+
+### Fixed
+
+- Fixed crates.io publish verification failure caused by relying on a patched local `genai` API (`ChatOptions::with_extra_body`).
+- Added a compatibility fallback: when `extra_body` is present, chat execution routes to legacy backend instead of genai to keep published crate buildable with upstream `genai`.
+- Clarified fallback behavior with inline code comments and dry-run observability.
+
+### Docs
+
+- Synced README/README_CN CLI sections with actual `--help` output.
+- Added Cargo installation instructions (`cargo install llmctl`, `cargo install --path .`).
+
 ## [1.0.0] - 2026-05-02
 
 ### Changed
@@ -37,4 +50,3 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Docs
 
 - Updated README/README_CN and init templates to reflect v2 configuration, provider presets, endpoint selection, and unified reasoning controls.
-

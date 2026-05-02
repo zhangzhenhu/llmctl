@@ -30,6 +30,13 @@ impl GenaiRuntime {
                 resolved.adapter
             ));
         }
+        // crates.io published genai currently does not expose an `extra_body`
+        // chat option builder. To keep publish-time compatibility while
+        // preserving provider-specific behavior, route these requests to the
+        // legacy backend path.
+        if !resolved.extra_body.is_empty() {
+            return Some("extra_body_requires_legacy_backend".to_string());
+        }
         None
     }
 
@@ -292,17 +299,6 @@ fn build_chat_options(resolved: &ResolvedRuntimeConfig) -> ChatOptions {
     {
         options = options.with_reasoning_effort(reasoning_effort);
     }
-    if !resolved.extra_body.is_empty() {
-        let value = serde_json::Value::Object(
-            resolved
-                .extra_body
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        );
-        options = options.with_extra_body(value);
-    }
-
     options
 }
 
@@ -454,8 +450,11 @@ mod tests {
         cfg.extra_body
             .insert("enable_thinking".to_string(), serde_json::Value::Bool(true));
         assert!(GenaiRuntime::is_list_supported(&cfg));
-        assert!(GenaiRuntime::is_chat_supported(&cfg));
-        assert_eq!(GenaiRuntime::unsupported_reason_for_chat(&cfg), None);
+        assert!(!GenaiRuntime::is_chat_supported(&cfg));
+        assert_eq!(
+            GenaiRuntime::unsupported_reason_for_chat(&cfg).as_deref(),
+            Some("extra_body_requires_legacy_backend")
+        );
     }
 
     #[test]
@@ -466,8 +465,11 @@ mod tests {
         cfg.extra_body
             .insert("enable_thinking".to_string(), serde_json::Value::Bool(true));
 
-        assert!(GenaiRuntime::is_chat_supported(&cfg));
-        assert_eq!(GenaiRuntime::unsupported_reason_for_chat(&cfg), None);
+        assert!(!GenaiRuntime::is_chat_supported(&cfg));
+        assert_eq!(
+            GenaiRuntime::unsupported_reason_for_chat(&cfg).as_deref(),
+            Some("extra_body_requires_legacy_backend")
+        );
     }
 
     #[test]
@@ -481,24 +483,6 @@ mod tests {
         assert!(GenaiRuntime::unsupported_reason_for_list(&cfg)
             .unwrap_or_default()
             .contains("adapter_not_supported_by_genai"));
-    }
-
-    #[test]
-    fn build_chat_options_maps_extra_body_into_genai_options() {
-        let mut cfg = resolved();
-        cfg.extra_body
-            .insert("enable_thinking".to_string(), serde_json::Value::Bool(true));
-        cfg.extra_body.insert(
-            "reasoning_budget".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(128)),
-        );
-
-        let options = build_chat_options(&cfg);
-        let extra = options.extra_body.expect("extra_body should be present");
-        let object = extra.as_object().expect("extra_body should be an object");
-
-        assert_eq!(object.get("enable_thinking"), Some(&serde_json::json!(true)));
-        assert_eq!(object.get("reasoning_budget"), Some(&serde_json::json!(128)));
     }
 
     #[test]

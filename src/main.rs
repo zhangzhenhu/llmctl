@@ -40,7 +40,7 @@ fn main() {
     if args.version {
         println!(
             "llmctl {}",
-            Args::command().get_version().unwrap_or("1.0.0")
+            Args::command().get_version().unwrap_or("1.0.1")
         );
         std::process::exit(0);
     }
@@ -84,8 +84,10 @@ fn run(args: Args) -> Result<(), LlmProbeError> {
     } else {
         "legacy_llm_fallback"
     };
-    // extra_body uses genai-native request options. When we can execute on the
-    // genai runtime, it is considered supported for the selected route.
+    // `extra_body` is supported only when chat runs on the genai path.
+    // If runtime_fallback_reason is set (for example:
+    // `extra_body_requires_legacy_backend`), execution is intentionally routed
+    // to the legacy backend for publish-time compatibility.
     let extra_body_supported = runtime_fallback_reason.is_none();
 
     if args.dry_run {

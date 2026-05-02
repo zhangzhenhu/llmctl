@@ -30,6 +30,19 @@ Note:
 - In some environments, running `brew install zhangzhenhu/llmctl/llmctl` directly may trigger an extra GitHub auth prompt during implicit tap resolution.
 - Explicit `brew tap` first usually avoids that prompt.
 
+### From Cargo
+
+```bash
+# Install latest published version from crates.io
+cargo install llmctl
+```
+
+If you only want the local source version:
+
+```bash
+cargo install --path .
+```
+
 If your platform is not supported, build from source:
 
 ```bash

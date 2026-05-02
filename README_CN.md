@@ -30,6 +30,19 @@ brew install llmctl
 - 某些环境下直接执行 `brew install zhangzhenhu/llmctl/llmctl`，在隐式 tap 解析阶段可能触发额外的 GitHub 认证提示。
 - 显式先 `brew tap`，通常可以避免这个提示。
 
+### 使用 Cargo 安装
+
+```bash
+# 从 crates.io 安装最新发布版本
+cargo install llmctl
+```
+
+如果你只想安装当前本地源码版本：
+
+```bash
+cargo install --path .
+```
+
 如果你的平台不被支持，可以从源码编译安装：
 
 ```bash
