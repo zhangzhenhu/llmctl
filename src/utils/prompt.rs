@@ -28,10 +28,8 @@ pub fn prompt_confirm(message: &str) -> bool {
 }
 
 pub fn init_config_file(path: &Path, format: &str) -> Result<(), String> {
-    if path.exists() {
-        if !prompt_overwrite(path) {
-            return Err("Operation cancelled".to_string());
-        }
+    if path.exists() && !prompt_overwrite(path) {
+        return Err("Operation cancelled".to_string());
     }
 
     let content = match format {
@@ -90,13 +88,12 @@ providers:
   # Example: Aliyun / DashScope profile
   # aliyun_qwen:
   #   adapter: aliyun
-  #   model: glm-5
+  #   model: qwen-plus
   #   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/
   #   api_key_env: ALIYUN_API_KEY
-  #   # Some Aliyun models do not expose reasoning. For reasoning tests,
-  #   # prefer models such as: glm-5, deepseek-v3.2
-  #   extra_body:
-  #     enable_thinking: true        # fallback for some OpenAI-compatible providers
+  #   # Reasoning differs by model/provider. Prefer --dry-run first,
+  #   # then set reasoning only when the selected model supports it.
+  #   # reasoning: auto
 
 # Shared context messages (appended before CLI --message)
 context:
@@ -130,12 +127,10 @@ const DEFAULT_CONFIG_JSON: &str = r#"{
     },
     "aliyun_qwen": {
       "adapter": "aliyun",
-      "model": "glm-5",
+      "model": "qwen-plus",
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/",
       "api_key_env": "ALIYUN_API_KEY",
-      "extra_body": {
-        "enable_thinking": true
-      }
+      "reasoning": "auto"
     }
   },
   "context": [

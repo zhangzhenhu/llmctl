@@ -18,7 +18,7 @@ use output::{
     print_dry_run, print_error, print_info, print_success,
 };
 use provider::{create_llm_backend, LLMClient};
-use runtime::GenaiRuntime;
+use runtime::{merge_plan_diagnostics, plan_runtime, GenaiRuntime, RuntimeBackend};
 // use std::io::Write;
 use std::path::PathBuf;
 // use std::time::Instant;
@@ -40,7 +40,9 @@ fn main() {
     if args.version {
         println!(
             "llmctl {}",
-            Args::command().get_version().unwrap_or("1.0.1")
+            Args::command()
+                .get_version()
+                .unwrap_or(env!("CARGO_PKG_VERSION"))
         );
         std::process::exit(0);
     }
@@ -73,30 +75,17 @@ fn run(args: Args) -> Result<(), LlmProbeError> {
         AppConfigV2::default()
     };
     let resolved = resolve_runtime_config(app_config, &args)?;
-    let report = validate_resolved_config(&resolved, &args);
-    let runtime_fallback_reason = if args.list {
-        GenaiRuntime::unsupported_reason_for_list(&resolved)
-    } else {
-        GenaiRuntime::unsupported_reason_for_chat(&resolved)
-    };
-    let runtime_backend = if runtime_fallback_reason.is_none() {
-        "genai"
-    } else {
-        "legacy_llm_fallback"
-    };
-    // `extra_body` is supported only when chat runs on the genai path.
-    // If runtime_fallback_reason is set (for example:
-    // `extra_body_requires_legacy_backend`), execution is intentionally routed
-    // to the legacy backend for publish-time compatibility.
-    let extra_body_supported = runtime_fallback_reason.is_none();
+    let plan = plan_runtime(&resolved, &args);
+    let mut report = validate_resolved_config(&resolved, &args);
+    merge_plan_diagnostics(&mut report, &plan);
 
     if args.dry_run {
         print_dry_run(
             &resolved,
             &report,
-            runtime_backend,
-            runtime_fallback_reason.as_deref(),
-            extra_body_supported,
+            plan.backend_label(),
+            plan.reason_label(),
+            plan.extra_body_supported,
         );
     }
     if args.doctor_config {
@@ -115,14 +104,18 @@ fn run(args: Args) -> Result<(), LlmProbeError> {
         return Ok(());
     }
 
-    if (args.list && GenaiRuntime::is_list_supported(&resolved))
-        || (!args.list && GenaiRuntime::is_chat_supported(&resolved))
-    {
+    if plan.backend == RuntimeBackend::Genai {
         let genai_runtime = GenaiRuntime::from_resolved(resolved)?;
         if args.list {
             return handle_list_genai(&genai_runtime);
         }
         return handle_chat_genai(&genai_runtime);
+    }
+
+    if plan.backend != RuntimeBackend::LegacyLlm {
+        return Err(LlmProbeError::ConfigError(
+            "No executable runtime backend is available".to_string(),
+        ));
     }
 
     let runtime_config = resolved.to_legacy_runtime_config();
@@ -160,13 +153,13 @@ fn handle_init(args: &Args) -> Result<(), LlmProbeError> {
         )
     };
 
-    init_config_file(&output_path, &format).map_err(|e| LlmProbeError::ApiError(e))?;
+    init_config_file(&output_path, &format).map_err(LlmProbeError::ApiError)?;
 
     print_success(&format!("Config file created: {}", output_path.display()));
     Ok(())
 }
 
-fn handle_convert(convert_paths: &Vec<PathBuf>) -> Result<(), LlmProbeError> {
+fn handle_convert(convert_paths: &[PathBuf]) -> Result<(), LlmProbeError> {
     let input_path = &convert_paths[0];
     let output_path = convert_paths.get(1).map(|p| p.as_path());
 

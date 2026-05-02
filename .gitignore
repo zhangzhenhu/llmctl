@@ -24,3 +24,5 @@ target
 *.yaml
 !.github/workflows/*.yml
 !.github/workflows/*.yaml
+!tests/cases/*.yml
+!tests/cases/*.yaml

@@ -82,6 +82,8 @@ pub struct ChatOptions {
 	///
 	/// This is primarily useful for OpenAI-compatible providers that expose
 	/// non-standard request fields (for example, reasoning toggles).
+	/// llmctl patch: keep this until upstream genai exposes equivalent
+	/// request-body passthrough for OpenAI-compatible adapters.
 	pub extra_body: Option<Value>,
 }
 
@@ -202,6 +204,9 @@ impl ChatOptions {
 	}
 
 	/// Sets provider-specific extra body fields.
+	///
+	/// llmctl patch: used by OpenAI-compatible providers for request fields
+	/// that genai does not model directly yet.
 	pub fn with_extra_body(mut self, value: Value) -> Self {
 		self.extra_body = Some(value);
 		self

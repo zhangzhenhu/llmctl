@@ -251,6 +251,8 @@ impl Adapter for OpenAIRespAdapter {
 
 		// -- Provider-specific payload extension
 		// Merged last so callers can intentionally override previously set fields.
+		// llmctl patch: keep Responses parity with Chat Completions so
+		// OpenAI-compatible providers can use the same extra_body controls.
 		if let Some(extra_body) = chat_options.extra_body() {
 			payload.x_merge(extra_body.clone())?;
 		}

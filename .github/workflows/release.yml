@@ -7,8 +7,31 @@ on:
   workflow_dispatch:
 
 jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Verify release build
+        run: cargo build --locked --release
+
   release:
     name: Publish to GitHub Release
+    needs: validate
     permissions:
       contents: write
     outputs:
@@ -157,7 +180,10 @@ jobs:
 
   publish-crate:
     name: Publish to crates.io
-    if: ${{ needs.release.outputs.rc == 'false' }}
+    # Disabled while llmctl depends on the vendored genai patch via
+    # [patch.crates-io]. crates.io packages cannot rely on this local patch.
+    # See docs/crates_io_publish_restore.md before re-enabling.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     needs: release
     steps:
@@ -174,7 +200,7 @@ jobs:
     name: Update Homebrew Tap
     if: ${{ startsWith(github.ref, 'refs/tags/') && needs.release.outputs.rc == 'false' }}
     runs-on: ubuntu-latest
-    needs: [release, publish-crate]
+    needs: release
     permissions:
       contents: write
     steps:

@@ -8,7 +8,7 @@ LLM 服务验证 CLI 工具，用于测试和验证各种大语言模型服务�
 - **OpenAI 兼容接口**：支持阿里云、DashScope、本地部署等任何兼容 OpenAI API 的服务
 - **模型列表**：查看服务商支持的所有模型
 - **流式输出**：实时流式返回聊天内容
-- **思考/推理能力**：优先使用 genai 原生能力，兼容 `extra_body.enable_thinking` 与 `reasoning_content`
+- **思考/推理能力**：使用 genai 原生 reasoning 捕获，并通过 vendored `extra_body` 透传支持阿里云 `enable_thinking` 等 provider-specific 控制
 - **灵活配置**：支持 YAML/JSON 配置文件或命令行参数
 
 ## 安装
@@ -30,12 +30,19 @@ brew install llmctl
 - 某些环境下直接执行 `brew install zhangzhenhu/llmctl/llmctl`，在隐式 tap 解析阶段可能触发额外的 GitHub 认证提示。
 - 显式先 `brew tap`，通常可以避免这个提示。
 
-### 使用 Cargo 安装
+### 使用 Cargo Git 安装
 
 ```bash
-# 从 crates.io 安装最新发布版本
-cargo install llmctl
+# 从源码安装，因为 llmctl 使用 vendored genai patch
+cargo install --git https://github.com/zhangzhenhu/llmctl.git
 ```
+
+llmctl 当前不发布到 crates.io。原因是项目使用了一小段 vendored genai patch，用来支持上游 genai 尚未发布的 OpenAI-compatible provider 行为：
+
+- 请求体 `extra_body` 透传，用于阿里云/DashScope `enable_thinking=false` 等控制项；
+- 兼容流式 chunk 中的 `usage:null`，避免把有效响应记录成 usage 反序列化错误。
+
+这样可以继续保持 genai 主运行时，同时避免在 llmctl 内自研 OpenAI adapter。补丁清单和升级检查见 `docs/vendored_genai_patch.md`。
 
 如果你只想安装当前本地源码版本：
 
@@ -124,7 +131,27 @@ llmctl [选项]
       --reasoning <模式>       统一推理控制: off|auto|low|medium|high|xhigh|max|budget:<n>
       --dry-run                打印解析后的执行计划，不发请求
       --doctor-config          校验配置并打印诊断
+      --legacy-runtime         显式使用 legacy llm 运行时
       --allow-sdk-default-api  允许 OpenAI endpoint 回退到 SDK 默认行为
+```
+
+## 自动化测试
+
+CLI 回归测试用例已集中在：
+
+- `tests/cases/cli_dry_run_cases.yaml`
+- `tests/cli_dry_run_cases.rs`
+
+运行方式：
+
+```bash
+./scripts/run-cli-dry-run-tests.sh
+```
+
+或者：
+
+```bash
+cargo test --test cli_dry_run_cases -- --nocapture
 ```
 
 ### 使用示例
@@ -247,7 +274,7 @@ providers:
 
 可选值：
 
-- `off`：关闭推理内容捕获，并尽力向服务端发送关闭信号
+- `off`：关闭推理内容捕获，并应用已知服务商控制项，例如阿里云 `enable_thinking=false`
 - `auto`：由服务商模型自行决定，客户端做归一化解析
 - `low|medium|high|xhigh|max`
 - `budget:<n>`：预算模式（对支持预算映射的服务商生效）

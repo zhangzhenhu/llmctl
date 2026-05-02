@@ -136,7 +136,7 @@ impl RuntimeConfig {
 
 #[derive(Parser, Debug)]
 #[command(name = "llmctl")]
-#[command(version = "1.0.1")]
+#[command(version)]
 #[command(disable_version_flag = true)]
 #[command(about = "A CLI tool for testing and validating LLM services", long_about = None)]
 pub struct Args {
@@ -264,6 +264,12 @@ pub struct Args {
 
     #[arg(long, help = "Validate configuration and print diagnostics")]
     pub doctor_config: bool,
+
+    #[arg(
+        long = "legacy-runtime",
+        help = "Use the legacy llm runtime explicitly for compatibility diagnostics"
+    )]
+    pub legacy_runtime: bool,
 
     #[arg(
         long,

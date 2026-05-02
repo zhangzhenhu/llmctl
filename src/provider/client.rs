@@ -143,9 +143,15 @@ impl LLMClient {
             Err(e) => return Err(map_llm_error(&e.to_string())),
         }
 
+        if content.trim().is_empty() {
+            return Err(LlmProbeError::ApiError(
+                "Stream finished without assistant content. Retry with --no-stream to diagnose provider behavior.".to_string(),
+            ));
+        }
+
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        println!("");
+        println!();
         println!("{}", "─".repeat(50).dimmed());
         println!(
             "{}: ({}){}",

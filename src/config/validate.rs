@@ -92,7 +92,9 @@ pub fn validate_resolved_config(resolved: &ResolvedRuntimeConfig, args: &Args) -
         });
     }
 
-    if resolved.adapter != "openai" && resolved.openai_api != OpenAiApiMode::Auto {
+    if !matches!(resolved.adapter.as_str(), "openai" | "aliyun")
+        && resolved.openai_api != OpenAiApiMode::Auto
+    {
         report.diagnostics.push(ConfigDiagnostic {
             severity: DiagnosticSeverity::Warning,
             code: "openai_api_ignored".to_string(),
@@ -153,6 +155,7 @@ mod tests {
             reasoning: None,
             dry_run: false,
             doctor_config: false,
+            legacy_runtime: false,
             allow_sdk_default_api: false,
         }
     }

@@ -204,6 +204,8 @@ impl OpenAIAdapter {
 
 		// -- Provider-specific payload extension
 		// Merged last so callers can intentionally override previously set fields.
+		// llmctl patch: required for providers such as Aliyun/DashScope where
+		// `enable_thinking=false` is the service-side way to disable thinking.
 		if let Some(extra_body) = options_set.extra_body() {
 			payload.x_merge(extra_body.clone())?;
 		}
@@ -213,6 +215,9 @@ impl OpenAIAdapter {
 
 	/// Note: Needs to be called from super::streamer as well
 	pub(super) fn into_usage(adapter: AdapterKind, usage_value: Value) -> Usage {
+		// llmctl patch: some OpenAI-compatible streams, including Aliyun, send
+		// `usage:null` in every chunk. Treat it as absent usage instead of
+		// logging a deserialization error for each chunk.
 		if usage_value.is_null() {
 			return Usage::default();
 		}

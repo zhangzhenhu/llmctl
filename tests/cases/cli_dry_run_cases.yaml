@@ -1,0 +1,194 @@
+cases:
+  - name: "extra_body_runs_on_genai_with_vendor_patch"
+    config_yaml: |
+      version: 2
+      active_provider: ali
+      defaults:
+        stream: true
+      providers:
+        ali:
+          adapter: aliyun
+          model: glm-5
+          base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/
+          api_key: test-key
+          extra_body:
+            enable_thinking: true
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--reasoning"
+      - "off"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "runtime_backend: genai"
+      - "reasoning_setting: off"
+      - "reasoning_effort: none"
+      - "capture_reasoning_content: false"
+      - "extra_body_supported: true"
+      - "extra_body_keys:"
+      - "enable_thinking"
+    stderr_contains: []
+
+  - name: "extra_body_can_use_explicit_legacy_runtime"
+    config_yaml: |
+      version: 2
+      active_provider: ali
+      defaults:
+        stream: true
+      providers:
+        ali:
+          adapter: aliyun
+          model: glm-5
+          base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/
+          api_key: test-key
+          extra_body:
+            enable_thinking: true
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--reasoning"
+      - "off"
+      - "--legacy-runtime"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "runtime_backend: legacy_llm"
+      - "runtime_fallback_reason: explicit_legacy_runtime"
+      - "Warnings"
+      - "legacy_runtime_requested"
+    stderr_contains: []
+
+  - name: "endpoint_alias_chat_completions_is_accepted"
+    config_yaml: |
+      version: 2
+      active_provider: openai_main
+      providers:
+        openai_main:
+          adapter: openai
+          model: gpt-4o
+          api_key: test-key
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--endpoint"
+      - "chat_completions"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "openai_api_requested: ChatCompletions"
+      - "openai_api_runtime: enforced_by_model_namespace"
+      - "effective_model: openai::gpt-4o"
+    stderr_contains: []
+
+  - name: "aliyun_endpoint_responses_is_enforced_with_openai_resp_namespace"
+    config_yaml: |
+      version: 2
+      active_provider: ali
+      providers:
+        ali:
+          adapter: aliyun
+          model: qwen-plus
+          base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/
+          api_key: test-key
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--endpoint"
+      - "responses"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "adapter: aliyun"
+      - "openai_api_requested: Responses"
+      - "openai_api_runtime: enforced_by_model_namespace"
+      - "effective_model: openai_resp::qwen-plus"
+    stderr_contains: []
+
+  - name: "no_stream_overrides_default_stream_true"
+    config_yaml: |
+      version: 2
+      active_provider: openai_main
+      defaults:
+        stream: true
+      providers:
+        openai_main:
+          adapter: openai
+          model: gpt-4o
+          api_key: test-key
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--no-stream"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "stream: false"
+    stderr_contains: []
+
+  - name: "invalid_reasoning_value_returns_config_error"
+    config_yaml: |
+      version: 2
+      active_provider: openai_main
+      providers:
+        openai_main:
+          adapter: openai
+          model: gpt-4o
+          api_key: test-key
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--reasoning"
+      - "weird-value"
+      - "--dry-run"
+    expect_exit_code: 1
+    stdout_contains: []
+    stderr_contains:
+      - "invalid reasoning value"
+
+  - name: "provider_alias_aliyun_sets_expected_defaults"
+    config_yaml: |
+      version: 2
+      active_provider: openai_main
+      providers:
+        openai_main:
+          adapter: openai
+          model: gpt-4o
+          api_key: test-key
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--provider"
+      - "aliyun"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "adapter: aliyun"
+      - "model: qwen-max"
+      - "base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/"
+    stderr_contains: []
+
+  - name: "reasoning_off_without_enable_thinking_stays_on_genai"
+    config_yaml: |
+      version: 2
+      active_provider: ali
+      providers:
+        ali:
+          adapter: aliyun
+          model: qwen-plus
+          base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/
+          api_key: test-key
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--reasoning"
+      - "off"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "runtime_backend: genai"
+      - "reasoning_effort: none"
+      - "capture_reasoning_content: false"
+      - "extra_body_keys:"
+      - "enable_thinking"
+    stderr_contains: []

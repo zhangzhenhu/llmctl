@@ -8,7 +8,7 @@ A CLI tool for testing and validating LLM (Large Language Model) services. Suppo
 - **OpenAI-Compatible API**: Works with any service that implements the OpenAI API format (Aliyun, DashScope, local deployments, etc.)
 - **Model Listing**: List all available models from your provider
 - **Streaming Responses**: Real-time streaming output for chat responses
-- **Thinking/Reasoning Support**: Uses genai-native capabilities with fallback compatibility for `extra_body.enable_thinking` and `reasoning_content`
+- **Thinking/Reasoning Support**: Uses genai-native reasoning capture with vendored `extra_body` passthrough for provider-specific controls such as Aliyun `enable_thinking`
 - **Flexible Configuration**: Configure via YAML/JSON files or command-line arguments
 
 ## Installation
@@ -30,12 +30,19 @@ Note:
 - In some environments, running `brew install zhangzhenhu/llmctl/llmctl` directly may trigger an extra GitHub auth prompt during implicit tap resolution.
 - Explicit `brew tap` first usually avoids that prompt.
 
-### From Cargo
+### From Cargo Git Install
 
 ```bash
-# Install latest published version from crates.io
-cargo install llmctl
+# Install from source because llmctl uses a vendored genai patch
+cargo install --git https://github.com/zhangzhenhu/llmctl.git
 ```
+
+llmctl is not currently published to crates.io. It uses a small vendored genai patch to support OpenAI-compatible provider behavior that upstream genai has not released yet:
+
+- request `extra_body` passthrough, used for controls such as Aliyun/DashScope `enable_thinking=false`;
+- tolerant streaming usage parsing for chunks that contain `usage:null`.
+
+This keeps the runtime on genai while avoiding a custom OpenAI adapter in llmctl. See `docs/vendored_genai_patch.md` for the patch inventory and upgrade checklist.
 
 If you only want the local source version:
 
@@ -124,7 +131,27 @@ Options:
       --reasoning <MODE>       Unified reasoning: off|auto|low|medium|high|xhigh|max|budget:<n>
       --dry-run                Print resolved execution plan without request
       --doctor-config          Validate config and print diagnostics
+      --legacy-runtime         Use the legacy llm runtime explicitly
       --allow-sdk-default-api  Allow OpenAI endpoint fallback to SDK default
+```
+
+## Automated Tests
+
+Centralized CLI regression cases live in:
+
+- `tests/cases/cli_dry_run_cases.yaml`
+- `tests/cli_dry_run_cases.rs`
+
+Run the suite with:
+
+```bash
+./scripts/run-cli-dry-run-tests.sh
+```
+
+or:
+
+```bash
+cargo test --test cli_dry_run_cases -- --nocapture
 ```
 
 ### Examples
@@ -250,7 +277,7 @@ providers:
 
 Allowed values:
 
-- `off` (disable reasoning capture; sends best-effort disable signal)
+- `off` (disable reasoning capture and apply known provider controls, for example Aliyun `enable_thinking=false`)
 - `auto` (provider default behavior with normalized parsing)
 - `low|medium|high|xhigh|max`
 - `budget:<n>` (numeric budget for providers that support budget mapping)

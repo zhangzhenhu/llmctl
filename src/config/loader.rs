@@ -191,6 +191,7 @@ mod tests {
             reasoning: None,
             dry_run: false,
             doctor_config: false,
+            legacy_runtime: false,
             allow_sdk_default_api: false,
         }
     }

@@ -161,12 +161,12 @@ pub fn resolve_runtime_config(
         .or(profile.reasoning_effort.clone())
         .or(app.defaults.reasoning.clone());
     let capture_reasoning_default = app.defaults.capture_reasoning_content.unwrap_or(true);
-    let (reasoning_setting, reasoning_effort, capture_reasoning_content, extra_body) =
-        resolve_reasoning_controls(
-            requested_reasoning,
-            capture_reasoning_default,
-            profile.extra_body,
-        )?;
+    let reasoning_resolution = resolve_reasoning_controls(
+        &adapter,
+        requested_reasoning,
+        capture_reasoning_default,
+        profile.extra_body,
+    )?;
 
     Ok(ResolvedRuntimeConfig {
         active_provider: selected_name,
@@ -185,16 +185,16 @@ pub fn resolve_runtime_config(
         system,
         timeout_seconds: profile.timeout_seconds.or(app.defaults.timeout_seconds),
         reasoning: None,
-        reasoning_effort,
+        reasoning_effort: reasoning_resolution.effort,
         reasoning_budget_tokens: None,
         openai_api,
         openai_api_enforced,
         effective_model,
-        reasoning_setting,
+        reasoning_setting: reasoning_resolution.setting,
         capture_usage: app.defaults.capture_usage.unwrap_or(true),
-        capture_reasoning_content,
+        capture_reasoning_content: reasoning_resolution.capture_reasoning_content,
         normalize_reasoning_content: app.defaults.normalize_reasoning_content.unwrap_or(true),
-        extra_body,
+        extra_body: reasoning_resolution.extra_body,
     })
 }
 
@@ -206,12 +206,18 @@ enum ReasoningControl {
 }
 
 fn resolve_reasoning_controls(
+    adapter: &str,
     requested: Option<String>,
     capture_default: bool,
     mut extra_body: HashMap<String, Value>,
-) -> Result<(Option<String>, Option<String>, bool, HashMap<String, Value>), LlmProbeError> {
+) -> Result<ReasoningResolution, LlmProbeError> {
     let Some(raw) = requested else {
-        return Ok((None, None, capture_default, extra_body));
+        return Ok(ReasoningResolution {
+            setting: None,
+            effort: None,
+            capture_reasoning_content: capture_default,
+            extra_body,
+        });
     };
 
     let control = parse_reasoning_control(&raw)?;
@@ -219,19 +225,44 @@ fn resolve_reasoning_controls(
 
     match control {
         ReasoningControl::Off => {
-            if extra_body.contains_key("enable_thinking") {
+            // Aliyun/DashScope thinking models use this OpenAI-compatible
+            // extension to disable server-side thinking. The vendored genai
+            // patch forwards extra_body through the normal genai path.
+            if adapter == "aliyun" || extra_body.contains_key("enable_thinking") {
                 extra_body.insert("enable_thinking".to_string(), Value::Bool(false));
             }
-            Ok((setting_label, Some("none".to_string()), false, extra_body))
+            Ok(ReasoningResolution {
+                setting: setting_label,
+                effort: Some("none".to_string()),
+                capture_reasoning_content: false,
+                extra_body,
+            })
         }
-        ReasoningControl::Auto => Ok((setting_label, None, true, extra_body)),
+        ReasoningControl::Auto => Ok(ReasoningResolution {
+            setting: setting_label,
+            effort: None,
+            capture_reasoning_content: true,
+            extra_body,
+        }),
         ReasoningControl::Effort(effort) => {
-            if extra_body.contains_key("enable_thinking") {
+            if adapter == "aliyun" || extra_body.contains_key("enable_thinking") {
                 extra_body.insert("enable_thinking".to_string(), Value::Bool(true));
             }
-            Ok((setting_label, Some(effort), true, extra_body))
+            Ok(ReasoningResolution {
+                setting: setting_label,
+                effort: Some(effort),
+                capture_reasoning_content: true,
+                extra_body,
+            })
         }
     }
+}
+
+struct ReasoningResolution {
+    setting: Option<String>,
+    effort: Option<String>,
+    capture_reasoning_content: bool,
+    extra_body: HashMap<String, Value>,
 }
 
 fn parse_reasoning_control(input: &str) -> Result<ReasoningControl, LlmProbeError> {
@@ -288,6 +319,7 @@ fn resolve_effective_model(
         ("openai", OpenAiApiMode::Responses) => format!("openai_resp::{model}"),
         ("openai", OpenAiApiMode::ChatCompletions) => format!("openai::{model}"),
         ("openai", OpenAiApiMode::Auto) => format!("openai::{model}"),
+        ("aliyun", OpenAiApiMode::Responses) => format!("openai_resp::{model}"),
         ("aliyun", _) => format!("aliyun::{model}"),
         ("anthropic", _) => format!("anthropic::{model}"),
         ("gemini", _) => format!("gemini::{model}"),
@@ -301,7 +333,7 @@ fn resolve_effective_model(
         ("zai", _) => format!("zai::{model}"),
         _ => model.to_string(),
     };
-    let enforced = adapter == "openai" && openai_api != OpenAiApiMode::Auto;
+    let enforced = matches!(adapter, "openai" | "aliyun") && openai_api != OpenAiApiMode::Auto;
     (namespaced, enforced)
 }
 
@@ -487,16 +519,33 @@ fn apply_preset_into_profile(
     if profile.adapter.trim().is_empty() {
         profile.adapter = preset.adapter.to_string();
     }
-    if profile.base_url.as_deref().unwrap_or_default().trim().is_empty() {
+    if profile
+        .base_url
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+    {
         profile.base_url = preset.base_url.map(str::to_string);
     }
-    if profile.api_key_env.as_deref().unwrap_or_default().trim().is_empty() {
+    if profile
+        .api_key_env
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+    {
         profile.api_key_env = preset.api_key_env.map(str::to_string);
     }
-    if fill_model_when_missing || profile.model.is_none() {
-        if profile.model.as_deref().unwrap_or_default().trim().is_empty() {
-            profile.model = preset.default_model.map(str::to_string);
-        }
+    if (fill_model_when_missing || profile.model.is_none())
+        && profile
+            .model
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+    {
+        profile.model = preset.default_model.map(str::to_string);
     }
 }
 
@@ -504,7 +553,7 @@ fn preset_by_alias(alias: &str) -> Option<BuiltinProviderPreset> {
     let alias = alias.trim().to_lowercase();
     builtin_preset_specs()
         .iter()
-        .find(|spec| spec.aliases.iter().any(|candidate| *candidate == alias.as_str()))
+        .find(|spec| spec.aliases.contains(&alias.as_str()))
         .map(|spec| spec.preset)
 }
 
@@ -541,9 +590,9 @@ fn normalize_adapter_name(raw: &str) -> String {
 }
 
 fn legacy_provider_name(adapter: &str) -> String {
-    // We no longer remap LegacyReasoningContent to the historical
-    // openai-compatible backend. Genai now handles reasoning + extra_body as
-    // the primary path, and legacy provider name should stay adapter-aligned.
+    // Keep the explicit legacy diagnostic path adapter-aligned. The old
+    // `openai-compatible` remap hid protocol decisions and made dry-run output
+    // disagree with execution.
     adapter.to_string()
 }
 
@@ -656,6 +705,7 @@ mod tests {
             reasoning: None,
             dry_run: false,
             doctor_config: false,
+            legacy_runtime: false,
             allow_sdk_default_api: false,
         }
     }
@@ -767,7 +817,10 @@ mod tests {
 
         assert_eq!(resolved.adapter, "openai");
         assert_eq!(resolved.model, "gpt-4o");
-        assert_eq!(resolved.base_url.as_deref(), Some("https://api.openai.com/v1"));
+        assert_eq!(
+            resolved.base_url.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
     }
 
     #[test]
@@ -822,7 +875,10 @@ mod tests {
         assert_eq!(resolved.active_provider, "profile_a");
         assert_eq!(resolved.adapter, "aliyun");
         assert_eq!(resolved.model, "qwen-max");
-        assert_eq!(resolved.base_url.as_deref(), Some("https://dashscope.aliyuncs.com/compatible-mode/v1/"));
+        assert_eq!(
+            resolved.base_url.as_deref(),
+            Some("https://dashscope.aliyuncs.com/compatible-mode/v1/")
+        );
     }
 
     #[test]
@@ -875,6 +931,36 @@ mod tests {
             .extra_body
             .insert("enable_thinking".to_string(), serde_json::json!(true));
         providers.insert("ali".to_string(), profile);
+
+        let app = AppConfigV2 {
+            version: Some(2),
+            active_provider: Some("ali".to_string()),
+            defaults: DefaultsConfig::default(),
+            providers,
+            context: Vec::new(),
+        };
+
+        let mut input = args();
+        input.reasoning = Some("off".to_string());
+
+        let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
+        assert_eq!(
+            resolved.extra_body.get("enable_thinking"),
+            Some(&serde_json::json!(false))
+        );
+    }
+
+    #[test]
+    fn reasoning_off_injects_enable_thinking_false_for_aliyun() {
+        let mut providers = BTreeMap::new();
+        providers.insert(
+            "ali".to_string(),
+            ProviderProfile {
+                adapter: "aliyun".to_string(),
+                model: Some("glm-5".to_string()),
+                ..ProviderProfile::default()
+            },
+        );
 
         let app = AppConfigV2 {
             version: Some(2),

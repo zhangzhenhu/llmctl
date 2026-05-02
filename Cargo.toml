@@ -1,10 +1,12 @@
 [package]
 name = "llmctl"
-version = "1.0.1"
+version = "2.0.0"
 edition = "2021"
 description = "A CLI tool for testing and validating LLM (Large Language Model) services. Supports multiple providers including OpenAI, Gemini, Claude, Ollama, DeepSeek, and any OpenAI-compatible APIs. "
 authors = ["zhangzhenhu"]
 license = "MIT"
+repository = "https://github.com/zhangzhenhu/llmctl"
+homepage = "https://github.com/zhangzhenhu/llmctl"
 
 [dependencies]
 # CLI 参数解析
@@ -47,5 +49,12 @@ genai = "0.6.0-beta.18"
 [features]
 default = []
 
+# llmctl currently relies on a small genai patch for OpenAI-compatible
+# providers:
+# - ChatOptions::with_extra_body request passthrough
+# - tolerant handling for streaming chunks with usage:null
+#
+# crates.io publishing is disabled while this patch is required. Before
+# removing this section or upgrading genai, see docs/vendored_genai_patch.md.
 [patch.crates-io]
 genai = { path = "vendor/genai" }

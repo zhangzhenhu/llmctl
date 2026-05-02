@@ -1,6 +1,8 @@
 # genai Spike 记录
 
-Decision: go (with local patch)
+Decision: go (vendored patch path; crates.io publishing disabled)
+
+2026-05-02 更新：llmctl 已取消 crates.io 发布，因此当前源码构建允许通过 `[patch.crates-io]` 使用 `vendor/genai`。vendored genai 已补充 `extra_body` passthrough，并对 OpenAI-compatible stream 的 `usage:null` 做空 usage 处理。
 
 ## Required Capabilities
 
@@ -10,7 +12,7 @@ Decision: go (with local patch)
 - api_key_resolver: supported
 - reasoning_content_capture: supported
 - reasoning_stream_event: supported
-- extra_body_passthrough: supported (genai native API via local patch)
+- extra_body_passthrough: supported via vendored genai patch
 
 ## Optional Capabilities
 
@@ -48,11 +50,11 @@ Decision: go (with local patch)
 ## 结论说明
 
 1. chat / stream / list 主路径可迁移到 genai。
-2. `extra_body` 已走 genai-native 能力透传（`with_extra_body`），无需 llmctl 自定义 provider body 适配。
+2. `extra_body` 通过 vendored genai patch 走 genai-native 能力透传，无需 llmctl 自定义 provider body adapter。
 3. `openai_api` 可通过 model namespace 强制选择 `openai::` / `openai_resp::`。
 4. 主流程保留 fallback 原因输出，便于定位非 genai 能力缺口。
 
-\* `extra_body` 的实际生效范围取决于具体 adapter。OpenAI/OpenAIResp 及其兼容链路已验证可生效。
+\* `extra_body` 的源码构建依赖本仓库 `vendor/genai` patch；因此 llmctl 不再发布到 crates.io。
 
 ## Commands
 

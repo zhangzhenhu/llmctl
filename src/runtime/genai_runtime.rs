@@ -30,13 +30,6 @@ impl GenaiRuntime {
                 resolved.adapter
             ));
         }
-        // crates.io published genai currently does not expose an `extra_body`
-        // chat option builder. To keep publish-time compatibility while
-        // preserving provider-specific behavior, route these requests to the
-        // legacy backend path.
-        if !resolved.extra_body.is_empty() {
-            return Some("extra_body_requires_legacy_backend".to_string());
-        }
         None
     }
 
@@ -56,6 +49,10 @@ impl GenaiRuntime {
 
     pub fn is_list_supported(resolved: &ResolvedRuntimeConfig) -> bool {
         Self::unsupported_reason_for_list(resolved).is_none()
+    }
+
+    pub fn supports_resolved_config(resolved: &ResolvedRuntimeConfig) -> bool {
+        adapter_kind_for(resolved).is_some()
     }
 
     pub fn from_resolved(resolved: ResolvedRuntimeConfig) -> Result<Self, LlmProbeError> {
@@ -165,11 +162,16 @@ impl GenaiRuntime {
         let input_tokens = usage.prompt_tokens.and_then(to_u32_opt);
         let output_tokens = usage.completion_tokens.and_then(to_u32_opt);
         let provider_model = response.provider_model_iden.model_name.to_string();
+        let reasoning_content = if self.resolved.capture_reasoning_content {
+            response.reasoning_content
+        } else {
+            None
+        };
 
         Ok(ChatResponse {
             provider: self.resolved.adapter.clone(),
             content,
-            reasoning_content: response.reasoning_content,
+            reasoning_content,
             model: provider_model,
             duration_ms: started_at.elapsed().as_millis() as u64,
             input_tokens,
@@ -197,6 +199,12 @@ impl GenaiRuntime {
             .map_err(map_genai_error)?;
 
         let mut in_reasoning = false;
+        // Some OpenAI-compatible providers do not emit normal text chunks
+        // consistently in streaming mode, but still provide final concatenated
+        // text in `End.captured_content`. Track whether we have printed any
+        // response text and keep an end-of-stream fallback when needed.
+        let mut printed_response_content = false;
+        let mut fallback_response_text: Option<String> = None;
         let mut usage_prompt_tokens: Option<u32> = None;
         let mut usage_completion_tokens: Option<u32> = None;
 
@@ -204,6 +212,9 @@ impl GenaiRuntime {
             match event.map_err(map_genai_error)? {
                 ChatStreamEvent::Start => {}
                 ChatStreamEvent::ReasoningChunk(chunk) => {
+                    if !self.resolved.capture_reasoning_content {
+                        continue;
+                    }
                     if !in_reasoning {
                         println!("{}:", "Thinking".cyan());
                         println!("{}", "─".repeat(50).dimmed());
@@ -221,14 +232,32 @@ impl GenaiRuntime {
                     }
                     print!("{}", chunk.content);
                     std::io::stdout().flush().ok();
+                    printed_response_content = true;
                 }
                 ChatStreamEvent::End(end) => {
-                    if let Some(usage) = end.captured_usage {
+                    if let Some(ref usage) = end.captured_usage {
                         usage_prompt_tokens = usage.prompt_tokens.and_then(to_u32_opt);
                         usage_completion_tokens = usage.completion_tokens.and_then(to_u32_opt);
                     }
+                    if !printed_response_content {
+                        fallback_response_text = end.captured_first_text().map(ToOwned::to_owned);
+                    }
                 }
                 ChatStreamEvent::ThoughtSignatureChunk(_) | ChatStreamEvent::ToolCallChunk(_) => {}
+            }
+        }
+
+        if !printed_response_content {
+            if let Some(text) = fallback_response_text {
+                if !text.is_empty() {
+                    if in_reasoning {
+                        println!("\n{}", "─".repeat(50).dimmed());
+                        println!("{}:", "Response".cyan());
+                        println!("{}", "─".repeat(50).dimmed());
+                    }
+                    print!("{text}");
+                    std::io::stdout().flush().ok();
+                }
             }
         }
 
@@ -271,13 +300,10 @@ fn build_chat_request(resolved: &ResolvedRuntimeConfig) -> ChatRequest {
 }
 
 fn build_chat_options(resolved: &ResolvedRuntimeConfig) -> ChatOptions {
-    // Keep compatibility lightweight and genai-native:
-    // - some OpenAI-compatible providers still return reasoning_content on
-    //   chat/completions
-    // - some require provider-specific toggles via extra_body (for example
-    //   enable_thinking)
-    // We rely on genai's built-in normalization/capture + extra_body passthrough
-    // instead of maintaining a custom adapter layer.
+    // Keep compatibility lightweight and genai-native. The vendored genai
+    // patch exposes request `extra_body` passthrough, which lets provider
+    // profiles carry small OpenAI-compatible extensions such as
+    // Aliyun/DashScope `enable_thinking`.
     let mut options = ChatOptions::default()
         .with_capture_usage(resolved.capture_usage)
         .with_capture_reasoning_content(resolved.capture_reasoning_content)
@@ -292,12 +318,22 @@ fn build_chat_options(resolved: &ResolvedRuntimeConfig) -> ChatOptions {
     if let Some(top_p) = resolved.top_p {
         options = options.with_top_p(top_p as f64);
     }
-    if let Some(reasoning_effort) = resolved
-        .reasoning_effort
-        .as_deref()
-        .and_then(parse_reasoning_effort)
-    {
-        options = options.with_reasoning_effort(reasoning_effort);
+    if let Some(raw_reasoning_effort) = resolved.reasoning_effort.as_deref() {
+        // `--reasoning off` is internally represented as "none" for dry-run
+        // visibility. On some OpenAI-compatible providers (observed on Aliyun
+        // Responses compatibility), sending `reasoning.effort=none` can cause
+        // an empty assistant content response. For `off`, provider-specific
+        // disable flags are carried via extra_body instead.
+        if !raw_reasoning_effort.eq_ignore_ascii_case("none") {
+            if let Some(reasoning_effort) = parse_reasoning_effort(raw_reasoning_effort) {
+                options = options.with_reasoning_effort(reasoning_effort);
+            }
+        }
+    }
+    if !resolved.extra_body.is_empty() {
+        options = options.with_extra_body(serde_json::Value::Object(
+            resolved.extra_body.clone().into_iter().collect(),
+        ));
     }
     options
 }
@@ -373,7 +409,12 @@ fn supports_live_models_endpoint(adapter: &str) -> bool {
 }
 
 fn models_base_url_for(resolved: &ResolvedRuntimeConfig) -> Option<String> {
-    if let Some(url) = resolved.base_url.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    if let Some(url) = resolved
+        .base_url
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         return Some(url.to_string());
     }
 
@@ -450,26 +491,18 @@ mod tests {
         cfg.extra_body
             .insert("enable_thinking".to_string(), serde_json::Value::Bool(true));
         assert!(GenaiRuntime::is_list_supported(&cfg));
-        assert!(!GenaiRuntime::is_chat_supported(&cfg));
-        assert_eq!(
-            GenaiRuntime::unsupported_reason_for_chat(&cfg).as_deref(),
-            Some("extra_body_requires_legacy_backend")
-        );
+        assert!(GenaiRuntime::is_chat_supported(&cfg));
     }
 
     #[test]
-    fn extra_body_does_not_block_non_openai_adapter() {
+    fn extra_body_is_not_a_genai_adapter_support_decision() {
         let mut cfg = resolved();
         cfg.adapter = "anthropic".to_string();
         cfg.effective_model = "anthropic::claude-sonnet-4-5".to_string();
         cfg.extra_body
             .insert("enable_thinking".to_string(), serde_json::Value::Bool(true));
 
-        assert!(!GenaiRuntime::is_chat_supported(&cfg));
-        assert_eq!(
-            GenaiRuntime::unsupported_reason_for_chat(&cfg).as_deref(),
-            Some("extra_body_requires_legacy_backend")
-        );
+        assert!(GenaiRuntime::is_chat_supported(&cfg));
     }
 
     #[test]
