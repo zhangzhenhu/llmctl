@@ -16,11 +16,19 @@ LLM 服务验证 CLI 工具，用于测试和验证各种大语言模型服务�
 ### 使用 Homebrew（推荐）
 
 ```bash
-# 安装预编译的二进制文件
-brew install zhangzhenhu/llmctl/llmctl
+# 1）先添加 tap
+brew tap zhangzhenhu/llmctl
+
+# 2）再安装预编译二进制
+brew install llmctl
 ```
 
 支持的平台：macOS (Apple Silicon & Intel)、Linux (arm64 & x86_64)
+
+说明：
+
+- 某些环境下直接执行 `brew install zhangzhenhu/llmctl/llmctl`，在隐式 tap 解析阶段可能触发额外的 GitHub 认证提示。
+- 显式先 `brew tap`，通常可以避免这个提示。
 
 如果你的平台不被支持，可以从源码编译安装：
 
@@ -83,23 +91,27 @@ llmctl -c llm.yaml
 llmctl [选项]
 
 选项:
-  -c, --config <路径>          配置文件路径
+  -c, --config <路径>          配置文件路径（YAML/JSON）
   -m, --model <字符串>         模型名称
   -l, --list                   列出可用模型
       --list-presets           列出内置 provider 预设并退出
-  -p, --provider <字符串>      服务商名称
+      --message <字符串>       追加用户消息（可重复）
+  -p, --provider <字符串>      服务商 adapter 或别名
   -P, --profile <名称>         使用配置文件中的 provider profile 名称（v2）
   -u, --url <字符串>           API 基础地址
   -s, --secret <字符串>        API 密钥
-      --endpoint <模式>        OpenAI 接口模式: auto|responses|chat-completions
+  -k, --key <字符串>           API 密钥（--secret 别名）
       --stream                 启用流式输出
       --no-stream              禁用流式输出（仅本次运行）
+  -v, --version                显示版本
+  -i, --init <格式>            初始化配置文件: yaml/json
+      --init-path <路径>       自定义配置文件路径
+  -t, --convert <输入>         转换配置文件格式
+      --endpoint <模式>        OpenAI 接口模式: auto|responses|chat-completions
       --reasoning <模式>       统一推理控制: off|auto|low|medium|high|xhigh|max|budget:<n>
       --dry-run                打印解析后的执行计划，不发请求
       --doctor-config          校验配置并打印诊断
-      --init <格式>            初始化配置文件 (yaml/json)
-      --init-path <路径>       自定义配置文件路径
-      -t, --convert <输入>         转换配置文件格式
+      --allow-sdk-default-api  允许 OpenAI endpoint 回退到 SDK 默认行为
 ```
 
 ### 使用示例
@@ -142,7 +154,21 @@ llmctl -c llm.yaml -m gpt-4-turbo
 #### 流式输出
 
 ```bash
-llmctl -c llm.yaml --stream
+# 当前默认就是流式输出
+llmctl -c llm.yaml
+
+# 仅本次关闭流式
+llmctl -c llm.yaml --no-stream
+```
+
+#### 统一推理控制
+
+```bash
+# 在支持的模型上提升推理强度
+llmctl --provider openai --model gpt-5 --reasoning high --message "hello"
+
+# 预算模式
+llmctl --provider gemini --reasoning budget:8000 --message "hello"
 ```
 
 #### 使用环境变量设置 API 密钥

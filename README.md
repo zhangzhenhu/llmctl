@@ -16,11 +16,19 @@ A CLI tool for testing and validating LLM (Large Language Model) services. Suppo
 ### From Homebrew (Recommended)
 
 ```bash
-# Install prebuilt binary
-brew install zhangzhenhu/llmctl/llmctl
+# 1) Add tap first
+brew tap zhangzhenhu/llmctl
+
+# 2) Install prebuilt binary
+brew install llmctl
 ```
 
 Supported platforms: macOS (Apple Silicon & Intel), Linux (arm64 & x86_64)
+
+Note:
+
+- In some environments, running `brew install zhangzhenhu/llmctl/llmctl` directly may trigger an extra GitHub auth prompt during implicit tap resolution.
+- Explicit `brew tap` first usually avoids that prompt.
 
 If your platform is not supported, build from source:
 
@@ -83,23 +91,27 @@ llmctl -c llm.yaml
 llmctl [OPTIONS]
 
 Options:
-  -c, --config <PATH>          Config file path
-  -m, --model <STRING>        Model name
-  -l, --list                  List available models
-      --list-presets          List built-in provider presets and exit
-  -p, --provider <STRING>     Provider name
-  -P, --profile <NAME>        Provider profile name from config (v2)
-  -u, --url <STRING>          API base URL
-  -s, --secret <STRING>       API key
-      --endpoint <MODE>       OpenAI API mode: auto|responses|chat-completions
-      --stream                Enable streaming response
-      --no-stream             Disable streaming response for this run
-      --reasoning <MODE>      Unified reasoning: off|auto|low|medium|high|xhigh|max|budget:<n>
-      --dry-run               Print resolved execution plan without request
-      --doctor-config         Validate config and print diagnostics
-      --init <FORMAT>         Initialize config file (yaml/json)
-      --init-path <PATH>      Custom config file path
-      -t, --convert <INPUT>       Convert config format
+  -c, --config <PATH>          Config file path (YAML or JSON)
+  -m, --model <STRING>         Model name
+  -l, --list                   List available models
+      --list-presets           List built-in provider presets and exit
+      --message <STRING>       Append user message (repeatable)
+  -p, --provider <STRING>      Provider adapter or alias
+  -P, --profile <NAME>         Provider profile name from config (v2)
+  -u, --url <STRING>           API base URL
+  -s, --secret <STRING>        API key
+  -k, --key <STRING>           API key alias for --secret
+      --stream                 Enable streaming response
+      --no-stream              Disable streaming response for this run
+  -v, --version                Show version information
+  -i, --init <FORMAT>          Initialize config file: yaml/json
+      --init-path <PATH>       Custom config file path
+  -t, --convert <INPUT>        Convert config format
+      --endpoint <MODE>        OpenAI API mode: auto|responses|chat-completions
+      --reasoning <MODE>       Unified reasoning: off|auto|low|medium|high|xhigh|max|budget:<n>
+      --dry-run                Print resolved execution plan without request
+      --doctor-config          Validate config and print diagnostics
+      --allow-sdk-default-api  Allow OpenAI endpoint fallback to SDK default
 ```
 
 ### Examples
@@ -145,7 +157,21 @@ llmctl -c llm.yaml -m gpt-4-turbo
 #### Stream Response
 
 ```bash
-llmctl -c llm.yaml --stream
+# Streaming is enabled by default
+llmctl -c llm.yaml
+
+# Disable streaming for one run
+llmctl -c llm.yaml --no-stream
+```
+
+#### Unified Reasoning Control
+
+```bash
+# Force higher reasoning effort when supported
+llmctl --provider openai --model gpt-5 --reasoning high --message "hello"
+
+# Budget style reasoning
+llmctl --provider gemini --reasoning budget:8000 --message "hello"
 ```
 
 #### Use with Environment Variable for API Key
