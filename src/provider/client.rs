@@ -284,6 +284,30 @@ fn map_llm_error(error: &str) -> LlmProbeError {
 use crate::config::schema::RuntimeConfig;
 // use std::collections::HashMap;
 
+fn parse_legacy_reasoning_effort(value: &str) -> Result<Option<ReasoningEffort>, LlmProbeError> {
+    let normalized = value.trim().to_lowercase();
+
+    // The legacy llm backend only supports low/medium/high.
+    // We normalize broader unified values into this smaller set, and treat
+    // disable/auto-like values as "no explicit effort".
+    let mapped = match normalized.as_str() {
+        "off" | "none" | "auto" | "false" | "disable" | "disabled" => None,
+        "low" | "minimal" => Some(ReasoningEffort::Low),
+        "medium" => Some(ReasoningEffort::Medium),
+        "high" | "xhigh" | "max" => Some(ReasoningEffort::High),
+        _ if normalized.starts_with("budget:") => Some(ReasoningEffort::High),
+        _ if normalized.parse::<u32>().is_ok() => Some(ReasoningEffort::High),
+        _ => {
+            return Err(LlmProbeError::ConfigError(format!(
+                "Invalid reasoning_effort value: {}",
+                value
+            )));
+        }
+    };
+
+    Ok(mapped)
+}
+
 pub fn create_llm_backend(
     provider: &str,
     api_key: &str,
@@ -363,18 +387,9 @@ pub fn create_llm_backend(
             builder = builder.reasoning(v);
         }
         if let Some(v) = &cfg.reasoning_effort {
-            let re = match v.to_lowercase().as_str() {
-                "high" => ReasoningEffort::High,
-                "low" => ReasoningEffort::Low,
-                "medium" => ReasoningEffort::Medium,
-                _ => {
-                    return Err(LlmProbeError::ConfigError(format!(
-                        "Invalid reasoning_effort value: {}",
-                        v
-                    )))
-                }
-            };
-            builder = builder.reasoning_effort(re);
+            if let Some(re) = parse_legacy_reasoning_effort(v)? {
+                builder = builder.reasoning_effort(re);
+            }
         }
 
         // system 通过 extra_body 传递
@@ -416,5 +431,28 @@ mod tests {
         match client.llm {
             LLMBackendEnum::Standard(_) => {}
         }
+    }
+
+    #[test]
+    fn legacy_reasoning_effort_accepts_off_like_values() {
+        assert!(parse_legacy_reasoning_effort("off").unwrap().is_none());
+        assert!(parse_legacy_reasoning_effort("none").unwrap().is_none());
+        assert!(parse_legacy_reasoning_effort("auto").unwrap().is_none());
+    }
+
+    #[test]
+    fn legacy_reasoning_effort_maps_extended_levels() {
+        assert!(matches!(
+            parse_legacy_reasoning_effort("minimal").unwrap(),
+            Some(ReasoningEffort::Low)
+        ));
+        assert!(matches!(
+            parse_legacy_reasoning_effort("xhigh").unwrap(),
+            Some(ReasoningEffort::High)
+        ));
+        assert!(matches!(
+            parse_legacy_reasoning_effort("budget:2048").unwrap(),
+            Some(ReasoningEffort::High)
+        ));
     }
 }
