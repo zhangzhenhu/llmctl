@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-05-03
+
+### Fixed
+
+- Fixed `--list` with explicit `--url/--base_url` so model listing now stays on the user-provided `/models` endpoint instead of falling back to the SDK default provider endpoint.
+- Improved explicit-endpoint model list errors to report the actual requested URL, HTTP status, and provider response body for easier debugging.
+
 ## [1.0.1] - 2026-05-02
 
 ### Fixed

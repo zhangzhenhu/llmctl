@@ -79,10 +79,18 @@ impl GenaiRuntime {
     }
 
     pub async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmProbeError> {
+        if self.resolved.base_url.is_some() {
+            return self.list_models_from_base_url().await;
+        }
+
         if let Some(live_models) = self.try_list_models_live().await? {
             return Ok(live_models);
         }
 
+        self.list_models_via_client().await
+    }
+
+    async fn list_models_via_client(&self) -> Result<Vec<ModelInfo>, LlmProbeError> {
         let kind = adapter_kind_for(&self.resolved)
             .ok_or_else(|| LlmProbeError::UnsupportedProvider(self.resolved.adapter.clone()))?;
         let model_names = self
@@ -97,6 +105,60 @@ impl GenaiRuntime {
             .map(|name| ModelInfo {
                 id: name.clone(),
                 name,
+                provider: provider.clone(),
+            })
+            .collect())
+    }
+
+    async fn list_models_from_base_url(&self) -> Result<Vec<ModelInfo>, LlmProbeError> {
+        let base_url = self
+            .resolved
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                LlmProbeError::ApiError(
+                    "base_url is required for explicit model listing".to_string(),
+                )
+            })?;
+        let url = format!("{}/models", base_url.trim_end_matches('/'));
+        let mut request = reqwest::Client::new().get(&url);
+
+        if !self.resolved.api_key.is_empty() {
+            request = request.bearer_auth(&self.resolved.api_key);
+        }
+
+        let response = request.send().await.map_err(|err| {
+            LlmProbeError::ApiError(format!("Model list request failed for {url}: {err}"))
+        })?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "<unavailable>".to_string());
+            return Err(LlmProbeError::ApiError(format!(
+                "Model list request failed for {url}: HTTP {status}. Response body:\n{body}"
+            )));
+        }
+
+        let payload = response
+            .json::<OpenAiModelsResponse>()
+            .await
+            .map_err(|err| {
+                LlmProbeError::ApiError(format!(
+                    "Failed to parse model list response from {url}: {err}"
+                ))
+            })?;
+        let provider = self.resolved.adapter.clone();
+
+        Ok(payload
+            .data
+            .into_iter()
+            .map(|item| ModelInfo {
+                id: item.id.clone(),
+                name: item.id,
                 provider: provider.clone(),
             })
             .collect())
