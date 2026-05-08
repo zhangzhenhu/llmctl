@@ -1,22 +1,9 @@
-#![allow(dead_code)]
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
 pub fn prompt_overwrite(path: &Path) -> bool {
     print!("File {} already exists, overwrite? [y/N]: ", path.display());
-    io::stdout().flush().ok();
-
-    let mut answer = String::new();
-    if io::stdin().read_line(&mut answer).is_ok() {
-        answer.trim().eq_ignore_ascii_case("y")
-    } else {
-        false
-    }
-}
-
-pub fn prompt_confirm(message: &str) -> bool {
-    print!("{} [y/N]: ", message);
     io::stdout().flush().ok();
 
     let mut answer = String::new();
@@ -51,39 +38,41 @@ const DEFAULT_CONFIG_YAML: &str = r#"# llmctl v2 config
 # Quick usage:
 #   llmctl -c llmctl.yaml --message "hello"
 #   llmctl -c llmctl.yaml --profile openai_main --message "hello"
-#   llmctl --list-presets
+#   llmctl --list-adapters
 #
 # Versioned schema (current: 2)
 version: 2
 
 # Default profile used when --profile is not provided
-active_provider: openai_main
+active_profile: openai_main
 
-# Global defaults (can be overridden by provider profile or CLI args)
+# Global defaults (can be overridden by profile or CLI args)
 defaults:
   stream: true                        # stream output by default
+  no_proxy: false                    # false = inherit reqwest/system proxy settings
   timeout_seconds: 60                # request timeout
   capture_usage: true                # collect prompt/completion token usage
   capture_reasoning_content: true    # collect reasoning content when provider supports it
   normalize_reasoning_content: true  # normalize provider-specific reasoning field
-  openai_api: auto                   # auto | responses | chat_completions (CLI also accepts chat-completions)
+  api_mode: auto                     # auto | responses | chat_completions (CLI also accepts chat-completions)
   # reasoning: auto                  # off | auto | low | medium | high | xhigh | max | budget:2048
 
-# Multiple provider profiles in one file
-providers:
+# Multiple profiles in one file
+profiles:
   # Profile name: openai_main
   openai_main:
-    adapter: openai                  # openai | aliyun | anthropic | gemini | ollama | deepseek | groq | mistral
+    adapter: openai                  # openai | aliyun | anthropic | gemini | ollama | deepseek | xai | groq | cohere | fireworks | together | zai
     model: gpt-4o
     api_key_env: OPENAI_API_KEY      # read API key from env var
+    # no_proxy: true                 # disable proxies for this profile only
     # api_key: ""                    # optional, not recommended
     # base_url: https://api.openai.com/v1
     # temperature: 0.7
     # max_tokens: 2048
     # top_p: 1.0
     # reasoning: high                # unified reasoning control (recommended)
-    # reasoning_effort: medium       # legacy alias, still supported
-    # openai_api: responses
+    # reasoning_effort: medium       # deprecated v2 alias, still supported
+    # api_mode: responses
 
   # Example: Aliyun / DashScope profile
   # aliyun_qwen:
@@ -105,21 +94,23 @@ context:
 
 const DEFAULT_CONFIG_JSON: &str = r#"{
   "version": 2,
-  "active_provider": "openai_main",
+  "active_profile": "openai_main",
   "defaults": {
     "stream": true,
+    "no_proxy": false,
     "timeout_seconds": 60,
     "capture_usage": true,
     "capture_reasoning_content": true,
     "normalize_reasoning_content": true,
-    "openai_api": "auto",
+    "api_mode": "auto",
     "reasoning": "auto"
   },
-  "providers": {
+  "profiles": {
     "openai_main": {
       "adapter": "openai",
       "model": "gpt-4o",
       "api_key_env": "OPENAI_API_KEY",
+      "no_proxy": false,
       "reasoning": "high",
       "temperature": 0.7,
       "max_tokens": 2048,
@@ -156,16 +147,16 @@ mod tests {
     fn default_yaml_template_uses_v2_shape() {
         let parsed: Value = serde_yaml::from_str(DEFAULT_CONFIG_YAML).expect("valid yaml");
         assert_eq!(parsed.get("version"), Some(&Value::from(2)));
-        assert!(parsed.get("active_provider").is_some());
-        assert!(parsed.get("providers").is_some());
+        assert!(parsed.get("active_profile").is_some());
+        assert!(parsed.get("profiles").is_some());
     }
 
     #[test]
     fn default_json_template_uses_v2_shape() {
         let parsed: Value = serde_json::from_str(DEFAULT_CONFIG_JSON).expect("valid json");
         assert_eq!(parsed.get("version"), Some(&Value::from(2)));
-        assert!(parsed.get("active_provider").is_some());
-        assert!(parsed.get("providers").is_some());
+        assert!(parsed.get("active_profile").is_some());
+        assert!(parsed.get("profiles").is_some());
     }
 
     #[test]
@@ -181,7 +172,7 @@ mod tests {
         let parsed: Value = serde_yaml::from_str(&content).expect("written yaml should be valid");
 
         assert_eq!(parsed.get("version"), Some(&Value::from(2)));
-        assert!(parsed.get("providers").is_some());
+        assert!(parsed.get("profiles").is_some());
 
         let _ = std::fs::remove_file(path);
     }

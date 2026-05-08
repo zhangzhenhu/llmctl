@@ -4,6 +4,7 @@ use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
 use crate::adapter::openai::OpenAIAdapter;
 use crate::chat::{ChatOptionsSet, StopReason, ToolCall};
 use crate::webc::{Event, EventSourceStream};
+use crate::error::format_error_chain;
 use crate::{Error, ModelIden, Result};
 use serde_json::Value;
 use std::pin::Pin;
@@ -373,14 +374,15 @@ impl futures::Stream for OpenAIStreamer {
 						}
 					}
 				}
-				Some(Err(err)) => {
-					tracing::error!("Error: {}", err);
-					return Poll::Ready(Some(Err(Error::WebStream {
-						model_iden: self.options.model_iden.clone(),
-						cause: err.to_string(),
-						error: err,
-					})));
-				}
+					Some(Err(err)) => {
+						let cause = format_error_chain(err.as_ref());
+						tracing::error!("Error: {}", cause);
+						return Poll::Ready(Some(Err(Error::WebStream {
+							model_iden: self.options.model_iden.clone(),
+							cause,
+							error: err,
+						})));
+					}
 				None => {
 					return Poll::Ready(None);
 				}

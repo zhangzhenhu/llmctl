@@ -76,29 +76,33 @@ pub fn validate_resolved_config(resolved: &ResolvedRuntimeConfig, args: &Args) -
         }
     }
 
+    if resolved.top_k.is_some() {
+        report.diagnostics.push(ConfigDiagnostic {
+            severity: DiagnosticSeverity::Warning,
+            code: "top_k_not_applied".to_string(),
+            message: "top_k is parsed but not applied by the current genai runtime".to_string(),
+        });
+    }
+
     if resolved.adapter == "openai"
-        && resolved.openai_api != OpenAiApiMode::Auto
-        && !resolved.openai_api_enforced
+        && resolved.api_mode != OpenAiApiMode::Auto
+        && !resolved.api_mode_enforced
     {
         report.diagnostics.push(ConfigDiagnostic {
-            severity: if args.allow_sdk_default_api {
-                DiagnosticSeverity::Warning
-            } else {
-                DiagnosticSeverity::Error
-            },
-            code: "openai_api_not_enforced".to_string(),
-            message: "openai_api is requested but runtime did not enforce a protocol namespace"
+            severity: DiagnosticSeverity::Error,
+            code: "api_mode_not_enforced".to_string(),
+            message: "api_mode is requested but runtime did not enforce a protocol namespace"
                 .to_string(),
         });
     }
 
     if !matches!(resolved.adapter.as_str(), "openai" | "aliyun")
-        && resolved.openai_api != OpenAiApiMode::Auto
+        && resolved.api_mode != OpenAiApiMode::Auto
     {
         report.diagnostics.push(ConfigDiagnostic {
             severity: DiagnosticSeverity::Warning,
-            code: "openai_api_ignored".to_string(),
-            message: "openai_api is ignored because adapter is not openai".to_string(),
+            code: "api_mode_ignored".to_string(),
+            message: "api_mode is ignored because adapter is not OpenAI-compatible".to_string(),
         });
     }
 
@@ -115,10 +119,7 @@ fn is_supported_adapter(adapter: &str) -> bool {
             | "ollama"
             | "deepseek"
             | "xai"
-            | "phind"
             | "groq"
-            | "mistral"
-            | "elevenlabs"
             | "cohere"
             | "fireworks"
             | "together"
@@ -138,33 +139,31 @@ mod tests {
             config: None,
             model: None,
             list: false,
-            list_presets: false,
+            list_adapters: false,
             message: Vec::new(),
-            provider: None,
+            adapter: None,
             profile: None,
-            url: None,
+            base_url: None,
             secret: None,
             key: None,
             stream: false,
             no_stream: false,
+            no_proxy: false,
             version: false,
             init: None,
             init_path: None,
             convert: None,
-            endpoint: None,
+            api_mode: None,
             reasoning: None,
             dry_run: false,
             doctor_config: false,
-            legacy_runtime: false,
-            allow_sdk_default_api: false,
         }
     }
 
     fn resolved() -> ResolvedRuntimeConfig {
         ResolvedRuntimeConfig {
-            active_provider: "default".to_string(),
+            active_profile: "default".to_string(),
             adapter: "openai".to_string(),
-            provider_for_legacy_backend: "openai".to_string(),
             model: "gpt-5".to_string(),
             base_url: Some("https://api.openai.com/v1".to_string()),
             api_key: "secret".to_string(),
@@ -180,12 +179,11 @@ mod tests {
             top_k: None,
             system: None,
             timeout_seconds: Some(60),
-            reasoning: None,
             reasoning_effort: None,
-            reasoning_budget_tokens: None,
-            openai_api: OpenAiApiMode::Auto,
-            openai_api_enforced: false,
+            api_mode: OpenAiApiMode::Auto,
+            api_mode_enforced: false,
             effective_model: "openai::gpt-5".to_string(),
+            no_proxy: false,
             reasoning_setting: None,
             capture_usage: true,
             capture_reasoning_content: true,
@@ -197,21 +195,21 @@ mod tests {
     #[test]
     fn explicit_openai_endpoint_requires_enforcement() {
         let mut cfg = resolved();
-        cfg.openai_api = OpenAiApiMode::Responses;
-        cfg.openai_api_enforced = false;
+        cfg.api_mode = OpenAiApiMode::Responses;
+        cfg.api_mode_enforced = false;
         let report = validate_resolved_config(&cfg, &args());
         assert!(report.has_errors());
         assert!(report
             .diagnostics
             .iter()
-            .any(|d| d.code == "openai_api_not_enforced"));
+            .any(|d| d.code == "api_mode_not_enforced"));
     }
 
     #[test]
     fn enforced_openai_endpoint_has_no_error() {
         let mut cfg = resolved();
-        cfg.openai_api = OpenAiApiMode::ChatCompletions;
-        cfg.openai_api_enforced = true;
+        cfg.api_mode = OpenAiApiMode::ChatCompletions;
+        cfg.api_mode_enforced = true;
         let report = validate_resolved_config(&cfg, &args());
         assert!(!report.has_errors());
         assert!(report.diagnostics.is_empty());
@@ -230,5 +228,17 @@ mod tests {
             .diagnostics
             .iter()
             .any(|d| d.code == "extra_body_legacy_fallback_for_chat"));
+    }
+
+    #[test]
+    fn top_k_emits_explicit_warning() {
+        let mut cfg = resolved();
+        cfg.top_k = Some(40);
+
+        let report = validate_resolved_config(&cfg, &args());
+        assert!(report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "top_k_not_applied"));
     }
 }

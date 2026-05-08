@@ -2,6 +2,7 @@ use crate::adapter::adapters::support::{StreamerCapturedData, StreamerOptions};
 use crate::adapter::cohere::CohereAdapter;
 use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
 use crate::chat::{ChatOptionsSet, StopReason};
+use crate::error::format_error_chain;
 use crate::webc::WebStream;
 use crate::{Error, ModelIden, Result};
 use serde::Deserialize;
@@ -135,10 +136,11 @@ impl futures::Stream for CohereStreamer {
 					}
 				}
 				Some(Err(err)) => {
-					tracing::error!("Cohere Adapter Stream Error: {}", err);
+					let cause = format_error_chain(err.as_ref());
+					tracing::error!("Cohere Adapter Stream Error: {}", cause);
 					return Poll::Ready(Some(Err(Error::WebStream {
 						model_iden: self.options.model_iden.clone(),
-						cause: err.to_string(),
+						cause,
 						error: err,
 					})));
 				}

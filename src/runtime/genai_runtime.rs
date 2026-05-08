@@ -5,6 +5,7 @@
 
 use crate::config::ResolvedRuntimeConfig;
 use crate::error::LlmProbeError;
+use crate::http::build_reqwest_client;
 use crate::provider::{ChatResponse, ModelInfo};
 use futures::StreamExt;
 use genai::adapter::AdapterKind;
@@ -13,8 +14,30 @@ use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
 use genai::{Client, ServiceTarget};
 use serde::Deserialize;
 
+pub enum ModelListSource {
+    ExplicitBaseUrl,
+    LiveProviderEndpoint,
+    StaticCatalog,
+}
+
+impl ModelListSource {
+    pub fn as_label(&self) -> &'static str {
+        match self {
+            Self::ExplicitBaseUrl => "provider /models endpoint (explicit base_url)",
+            Self::LiveProviderEndpoint => "provider /models endpoint",
+            Self::StaticCatalog => "genai static catalog fallback",
+        }
+    }
+}
+
+pub struct ModelListResult {
+    pub models: Vec<ModelInfo>,
+    pub source: ModelListSource,
+}
+
 pub struct GenaiRuntime {
     client: Client,
+    http_client: reqwest::Client,
     resolved: ResolvedRuntimeConfig,
 }
 
@@ -23,6 +46,7 @@ impl GenaiRuntime {
         self.resolved.stream
     }
 
+    #[cfg(test)]
     pub fn unsupported_reason_for_chat(resolved: &ResolvedRuntimeConfig) -> Option<String> {
         if adapter_kind_for(resolved).is_none() {
             return Some(format!(
@@ -33,6 +57,7 @@ impl GenaiRuntime {
         None
     }
 
+    #[cfg(test)]
     pub fn unsupported_reason_for_list(resolved: &ResolvedRuntimeConfig) -> Option<String> {
         if adapter_kind_for(resolved).is_none() {
             return Some(format!(
@@ -43,10 +68,12 @@ impl GenaiRuntime {
         None
     }
 
+    #[cfg(test)]
     pub fn is_chat_supported(resolved: &ResolvedRuntimeConfig) -> bool {
         Self::unsupported_reason_for_chat(resolved).is_none()
     }
 
+    #[cfg(test)]
     pub fn is_list_supported(resolved: &ResolvedRuntimeConfig) -> bool {
         Self::unsupported_reason_for_list(resolved).is_none()
     }
@@ -56,8 +83,10 @@ impl GenaiRuntime {
     }
 
     pub fn from_resolved(resolved: ResolvedRuntimeConfig) -> Result<Self, LlmProbeError> {
+        let http_client = build_reqwest_client(resolved.timeout_seconds, resolved.no_proxy)?;
         let api_key = resolved.api_key.clone();
         let mut builder = Client::builder()
+            .with_reqwest(http_client.clone())
             .with_auth_resolver_fn(move |_| Ok(Some(AuthData::from_single(api_key.clone()))));
 
         if let Some(base_url) = resolved.base_url.clone() {
@@ -74,20 +103,28 @@ impl GenaiRuntime {
 
         Ok(Self {
             client: builder.build(),
+            http_client,
             resolved,
         })
     }
 
-    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmProbeError> {
+    pub async fn list_models(&self) -> Result<ModelListResult, LlmProbeError> {
         if self.resolved.base_url.is_some() {
             return self.list_models_from_base_url().await;
         }
 
         if let Some(live_models) = self.try_list_models_live().await? {
-            return Ok(live_models);
+            return Ok(ModelListResult {
+                models: live_models,
+                source: ModelListSource::LiveProviderEndpoint,
+            });
         }
 
-        self.list_models_via_client().await
+        let models = self.list_models_via_client().await?;
+        Ok(ModelListResult {
+            models,
+            source: ModelListSource::StaticCatalog,
+        })
     }
 
     async fn list_models_via_client(&self) -> Result<Vec<ModelInfo>, LlmProbeError> {
@@ -110,7 +147,7 @@ impl GenaiRuntime {
             .collect())
     }
 
-    async fn list_models_from_base_url(&self) -> Result<Vec<ModelInfo>, LlmProbeError> {
+    async fn list_models_from_base_url(&self) -> Result<ModelListResult, LlmProbeError> {
         let base_url = self
             .resolved
             .base_url
@@ -123,7 +160,7 @@ impl GenaiRuntime {
                 )
             })?;
         let url = format!("{}/models", base_url.trim_end_matches('/'));
-        let mut request = reqwest::Client::new().get(&url);
+        let mut request = self.http_client.get(&url);
 
         if !self.resolved.api_key.is_empty() {
             request = request.bearer_auth(&self.resolved.api_key);
@@ -153,15 +190,18 @@ impl GenaiRuntime {
             })?;
         let provider = self.resolved.adapter.clone();
 
-        Ok(payload
-            .data
-            .into_iter()
-            .map(|item| ModelInfo {
-                id: item.id.clone(),
-                name: item.id,
-                provider: provider.clone(),
-            })
-            .collect())
+        Ok(ModelListResult {
+            models: payload
+                .data
+                .into_iter()
+                .map(|item| ModelInfo {
+                    id: item.id.clone(),
+                    name: item.id,
+                    provider: provider.clone(),
+                })
+                .collect(),
+            source: ModelListSource::ExplicitBaseUrl,
+        })
     }
 
     async fn try_list_models_live(&self) -> Result<Option<Vec<ModelInfo>>, LlmProbeError> {
@@ -173,7 +213,7 @@ impl GenaiRuntime {
             return Ok(None);
         };
         let url = format!("{}/models", base_url.trim_end_matches('/'));
-        let mut request = reqwest::Client::new().get(url);
+        let mut request = self.http_client.get(url);
 
         if !self.resolved.api_key.is_empty() {
             request = request.bearer_auth(&self.resolved.api_key);
@@ -462,7 +502,6 @@ fn supports_live_models_endpoint(adapter: &str) -> bool {
             | "deepseek"
             | "xai"
             | "groq"
-            | "mistral"
             | "cohere"
             | "fireworks"
             | "together"
@@ -486,7 +525,6 @@ fn models_base_url_for(resolved: &ResolvedRuntimeConfig) -> Option<String> {
         "deepseek" => Some("https://api.deepseek.com/v1"),
         "xai" => Some("https://api.x.ai/v1"),
         "groq" => Some("https://api.groq.com/openai/v1"),
-        "mistral" => Some("https://api.mistral.ai/v1"),
         "cohere" => Some("https://api.cohere.com/v2"),
         "fireworks" => Some("https://api.fireworks.ai/inference/v1"),
         "together" => Some("https://api.together.xyz/v1"),
@@ -515,9 +553,8 @@ mod tests {
 
     fn resolved() -> ResolvedRuntimeConfig {
         ResolvedRuntimeConfig {
-            active_provider: "default".to_string(),
+            active_profile: "default".to_string(),
             adapter: "openai".to_string(),
-            provider_for_legacy_backend: "openai".to_string(),
             model: "gpt-4.1".to_string(),
             base_url: Some("https://api.openai.com/v1".to_string()),
             api_key: "dummy".to_string(),
@@ -533,12 +570,11 @@ mod tests {
             top_k: None,
             system: Some("be concise".to_string()),
             timeout_seconds: Some(60),
-            reasoning: Some(false),
             reasoning_effort: Some("medium".to_string()),
-            reasoning_budget_tokens: None,
-            openai_api: OpenAiApiMode::Auto,
-            openai_api_enforced: false,
+            api_mode: OpenAiApiMode::Auto,
+            api_mode_enforced: false,
             effective_model: "openai::gpt-4.1".to_string(),
+            no_proxy: false,
             reasoning_setting: None,
             capture_usage: true,
             capture_reasoning_content: true,

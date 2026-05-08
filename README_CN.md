@@ -2,14 +2,22 @@
 
 LLM 服务验证 CLI 工具，用于测试和验证各种大语言模型服务。支持 OpenAI、Gemini、Claude、Ollama、DeepSeek 等多种服务商，并兼容任何实现了 OpenAI API 格式的服务。
 
+## 2.1.0 更新
+
+- 统一 CLI/配置命名为 `adapter`、`profile`、`base_url`、`api_mode`
+- 新增 `--list-adapters`，并补全内置 adapter 默认值与别名说明
+- 新增显式代理控制：`--no-proxy`、`defaults.no_proxy`、`profiles.<name>.no_proxy`
+- 运行时收敛到当前 genai 主路径，文档也同步到最新架构
+
 ## 功能特性
 
-- **多服务商支持**：OpenAI、Gemini (Google)、Anthropic (Claude)、Ollama、DeepSeek、XAI、Groq、Mistral 等
+- **多服务商支持**：OpenAI、Gemini (Google)、Anthropic (Claude)、Ollama、DeepSeek、XAI、Groq、Cohere 等
 - **OpenAI 兼容接口**：支持阿里云、DashScope、本地部署等任何兼容 OpenAI API 的服务
 - **模型列表**：查看服务商支持的所有模型
 - **流式输出**：实时流式返回聊天内容
 - **思考/推理能力**：使用 genai 原生 reasoning 捕获，并通过 vendored `extra_body` 透传支持阿里云 `enable_thinking` 等 provider-specific 控制
 - **灵活配置**：支持 YAML/JSON 配置文件或命令行参数
+- **代理控制**：默认行为是“继承 reqwest/系统代理设置”；可按 profile 配置或用 `--no-proxy` 单次强制直连
 
 ## 安装
 
@@ -86,12 +94,15 @@ llmctl --init json
 ```yaml
 # llm.yaml
 version: 2
-active_provider: openai_main
-providers:
+active_profile: openai_main
+defaults:
+  no_proxy: false
+profiles:
   openai_main:
     adapter: openai
     model: gpt-4o
     api_key_env: OPENAI_API_KEY
+    # no_proxy: true
 context:
   - role: system
     content: You are a helpful assistant.
@@ -111,29 +122,39 @@ llmctl -c llm.yaml
 llmctl [选项]
 
 选项:
-  -c, --config <路径>          配置文件路径（YAML/JSON）
+  -c, --config <路径>          配置文件路径（仅支持 v2 YAML/JSON）
   -m, --model <字符串>         模型名称
   -l, --list                   列出可用模型
-      --list-presets           列出内置 provider 预设并退出
+      --list-adapters          列出支持的 adapter、别名和内置默认值
       --message <字符串>       追加用户消息（可重复）
-  -p, --provider <字符串>      服务商 adapter 或别名
-  -P, --profile <名称>         使用配置文件中的 provider profile 名称（v2）
-  -u, --url <字符串>           API 基础地址
+  -p, --adapter <字符串>       adapter 名称或别名
+  -P, --profile <名称>         使用配置文件中的 profile 名称（v2）
+  -u, --base-url <字符串>      API 基础地址
   -s, --secret <字符串>        API 密钥
   -k, --key <字符串>           API 密钥（--secret 别名）
       --stream                 启用流式输出
       --no-stream              禁用流式输出（仅本次运行）
+      --no-proxy               禁用 llmctl 管理的所有 HTTP client 代理
   -v, --version                显示版本
   -i, --init <格式>            初始化配置文件: yaml/json
       --init-path <路径>       自定义配置文件路径
-  -t, --convert <输入>         转换配置文件格式
-      --endpoint <模式>        OpenAI 接口模式: auto|responses|chat-completions
+  -t, --convert <输入>         在 YAML/JSON 之间转换 v2 配置
+      --api-mode <模式>        API 模式: auto|responses|chat-completions
       --reasoning <模式>       统一推理控制: off|auto|low|medium|high|xhigh|max|budget:<n>
       --dry-run                打印解析后的执行计划，不发请求
       --doctor-config          校验配置并打印诊断
-      --legacy-runtime         显式使用 legacy llm 运行时
-      --allow-sdk-default-api  允许 OpenAI endpoint 回退到 SDK 默认行为
 ```
+
+代理解析优先级统一为：
+
+- CLI `--no-proxy`
+- `profiles.<name>.no_proxy`
+- `defaults.no_proxy`
+- 否则继承 reqwest/系统代理设置
+
+在 macOS 上，这个“继承系统代理”模式即使 shell 里没有 `*_proxy` 环境变量，也仍可能走系统代理。要强制直连，可使用 `--no-proxy`，或在配置里设置 `no_proxy: true`。
+
+当前运行时架构见 [docs/当前架构.md](docs/当前架构.md)。`docs/` 下较早的设计/稳定化文档保留为迁移历史，不再代表当前实现。
 
 ## 自动化测试
 
@@ -160,23 +181,23 @@ cargo test --test cli_dry_run_cases -- --nocapture
 
 ```bash
 # OpenAI 快速启动（读取 OPENAI_API_KEY）
-llmctl --provider openai --message "hello"
+llmctl --adapter openai --message "hello"
 
 # 阿里云快速启动（读取 ALIYUN_API_KEY）
-llmctl --provider aliyun --message "你好"
+llmctl --adapter aliyun --message "你好"
 
-# provider 别名模式同样支持：
-llmctl --provider dashscope --message "你好"
+# adapter 别名模式同样支持：
+llmctl --adapter ds --message "你好"
 ```
 
 #### 选择配置里的 Profile（v2）
 
 ```bash
-# 使用配置中的 providers.anthropic_main
+# 使用配置中的 profiles.anthropic_main
 llmctl -c llm.yaml -P anthropic_main --message "hello"
 
-# 保持 profile 不变，仅临时覆盖 adapter/preset
-llmctl -c llm.yaml -P openai_main --provider dashscope --message "你好"
+# 保持 profile 不变，但临时切换本次运行的 adapter 身份
+llmctl -c llm.yaml -P openai_main --adapter aliyun --message "你好"
 ```
 
 #### 列出可用模型
@@ -184,6 +205,8 @@ llmctl -c llm.yaml -P openai_main --provider dashscope --message "你好"
 ```bash
 llmctl -c llm.yaml -l
 ```
+
+现在 `--list` 会额外打印模型列表来源，便于区分结果来自真实 provider `/models` 还是静态 fallback。
 
 #### 指定模型聊天
 
@@ -205,10 +228,10 @@ llmctl -c llm.yaml --no-stream
 
 ```bash
 # 在支持的模型上提升推理强度
-llmctl --provider openai --model gpt-5 --reasoning high --message "hello"
+llmctl --adapter openai --model gpt-5 --reasoning high --message "hello"
 
 # 预算模式
-llmctl --provider gemini --reasoning budget:8000 --message "hello"
+llmctl --adapter gemini --reasoning budget:8000 --message "hello"
 ```
 
 #### 使用环境变量设置 API 密钥
@@ -218,33 +241,38 @@ export LLM_API_KEY="your-api-key"
 llmctl -c llm.yaml
 ```
 
-### 支持的服务商
+### 支持的 Adapter
 
-| 服务商 | 配置值 | 备注 |
-|--------|--------|------|
-| OpenAI | `openai` | |
-| Google Gemini | `gemini` 或 `google` | |
-| Anthropic Claude | `anthropic` 或 `claude` | |
-| Ollama | `ollama` | 本地部署 |
-| DeepSeek | `deepseek` | |
-| XAI | `xai` | |
-| Groq | `groq` | |
-| Mistral | `mistral` | |
-| OpenAI 兼容 | `openai-compatible`、`aliyun`、`dashscope` | 自定义端点 |
+| Adapter | 常用别名 | 备注 |
+|---------|----------|------|
+| `openai` | `oi`, `oai` | OpenAI-compatible 协议族 |
+| `aliyun` | `ali`, `dashscope`, `ds` | DashScope / 阿里云 |
+| `anthropic` | `claude`, `anth` | |
+| `gemini` | `google`, `gmi` | |
+| `ollama` | `ol` | 本地部署 |
+| `deepseek` | `dsk` | |
+| `xai` | `grok` | |
+| `groq` | `gq` | |
+| `cohere` | `co` | |
+| `fireworks` | `fw` | |
+| `together` | `tg` | |
+| `zai` | `zhipu`, `zhi` | Z.ai / 智谱 |
 
 ## 配置参考
 
 ### YAML 格式
 
+`v2` 就是 `llmctl` 当前使用的配置 schema 版本。
+
 ```yaml
 version: 2
-active_provider: openai_main
+active_profile: openai_main
 defaults:
   stream: true
   timeout_seconds: 60
-  openai_api: auto
+  api_mode: auto
   reasoning: auto
-providers:
+profiles:
   openai_main:
     adapter: openai
     model: gpt-4o
@@ -265,7 +293,7 @@ context:
 ```yaml
 defaults:
   reasoning: auto
-providers:
+profiles:
   openai_main:
     reasoning: high
   gemini_main:
@@ -279,9 +307,10 @@ providers:
 - `low|medium|high|xhigh|max`
 - `budget:<n>`：预算模式（对支持预算映射的服务商生效）
 
-兼容说明：
+配置说明：
 
-- provider profile 里的旧字段 `reasoning_effort` 仍可继续使用（兼容别名）。
+- 现在只支持 v2 配置结构。
+- profile 里的 `reasoning_effort` 仍可继续使用，但它只是 v2 内部的兼容别名。
 
 ## 错误处理
 

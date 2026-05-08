@@ -4,9 +4,7 @@
 //! execution. It keeps merge precedence explicit so `--dry-run` and
 //! `--doctor-config` can explain exactly what llmctl will run.
 
-use crate::config::schema::{
-    AppConfigV2, Args, Message, OpenAiApiMode, ProviderProfile, RuntimeConfig,
-};
+use crate::config::schema::{AppConfigV2, Args, Message, OpenAiApiMode, ProviderProfile};
 use crate::error::LlmProbeError;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -36,9 +34,8 @@ impl ApiKeySource {
 /// Resolved runtime plan shared by execution, dry-run and doctor diagnostics.
 #[derive(Debug, Clone)]
 pub struct ResolvedRuntimeConfig {
-    pub active_provider: String,
+    pub active_profile: String,
     pub adapter: String,
-    pub provider_for_legacy_backend: String,
     pub model: String,
     pub base_url: Option<String>,
     pub api_key: String,
@@ -51,12 +48,11 @@ pub struct ResolvedRuntimeConfig {
     pub top_k: Option<u32>,
     pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
-    pub reasoning: Option<bool>,
     pub reasoning_effort: Option<String>,
-    pub reasoning_budget_tokens: Option<u32>,
-    pub openai_api: OpenAiApiMode,
-    pub openai_api_enforced: bool,
+    pub api_mode: OpenAiApiMode,
+    pub api_mode_enforced: bool,
     pub effective_model: String,
+    pub no_proxy: bool,
     pub reasoning_setting: Option<String>,
     pub capture_usage: bool,
     pub capture_reasoning_content: bool,
@@ -64,58 +60,192 @@ pub struct ResolvedRuntimeConfig {
     pub extra_body: HashMap<String, serde_json::Value>,
 }
 
-impl ResolvedRuntimeConfig {
-    /// Convert to legacy runtime config so current llm backend path can keep
-    /// running while we migrate request execution to genai.
-    pub fn to_legacy_runtime_config(&self) -> RuntimeConfig {
-        RuntimeConfig {
-            provider: self.provider_for_legacy_backend.clone(),
-            base_url: self.base_url.clone().unwrap_or_default(),
-            api_key: self.api_key.clone(),
-            model: self.model.clone(),
-            stream: self.stream,
-            context: self.context.clone(),
-            max_tokens: self.max_tokens,
-            temperature: self.temperature,
-            top_p: self.top_p,
-            top_k: self.top_k,
-            system: self.system.clone(),
-            timeout_seconds: self.timeout_seconds,
-            reasoning: self.reasoning,
-            reasoning_effort: self.reasoning_effort.clone(),
-            reasoning_budget_tokens: self.reasoning_budget_tokens,
-            extra_body: self.extra_body.clone(),
-        }
-    }
+#[derive(Clone, Copy)]
+struct AdapterDefaults {
+    base_url: Option<&'static str>,
+    api_key_env: Option<&'static str>,
+    default_model: Option<&'static str>,
+}
+
+#[derive(Clone, Copy)]
+struct BuiltinAdapterSpec {
+    name: &'static str,
+    aliases: &'static [&'static str],
+    defaults: AdapterDefaults,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuiltinAdapterInfo {
+    pub name: String,
+    pub aliases: Vec<String>,
+    pub default_base_url: Option<String>,
+    pub api_key_env: Option<String>,
+    pub default_model: Option<String>,
+}
+
+const BUILTIN_ADAPTER_SPECS: &[BuiltinAdapterSpec] = &[
+    BuiltinAdapterSpec {
+        name: "openai",
+        aliases: &[
+            "openai",
+            "oi",
+            "oai",
+            "openai-compatible",
+            "openai_compatible",
+        ],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.openai.com/v1"),
+            api_key_env: Some("OPENAI_API_KEY"),
+            default_model: Some("gpt-4o"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "aliyun",
+        aliases: &["aliyun", "ali", "dashscope", "ds"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1/"),
+            api_key_env: Some("ALIYUN_API_KEY"),
+            default_model: Some("qwen-max"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "anthropic",
+        aliases: &["anthropic", "claude", "anth"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.anthropic.com"),
+            api_key_env: Some("ANTHROPIC_API_KEY"),
+            default_model: Some("claude-sonnet-4-5"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "gemini",
+        aliases: &["gemini", "google", "gmi"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://generativelanguage.googleapis.com/v1beta"),
+            api_key_env: Some("GEMINI_API_KEY"),
+            default_model: Some("gemini-2.5-pro"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "ollama",
+        aliases: &["ollama", "ol"],
+        defaults: AdapterDefaults {
+            base_url: Some("http://localhost:11434"),
+            api_key_env: None,
+            default_model: Some("llama3.1"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "deepseek",
+        aliases: &["deepseek", "dsk"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.deepseek.com/v1"),
+            api_key_env: Some("DEEPSEEK_API_KEY"),
+            default_model: Some("deepseek-chat"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "xai",
+        aliases: &["xai", "grok"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.x.ai/v1"),
+            api_key_env: Some("XAI_API_KEY"),
+            default_model: Some("grok-4"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "groq",
+        aliases: &["groq", "gq"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.groq.com/openai/v1"),
+            api_key_env: Some("GROQ_API_KEY"),
+            default_model: Some("llama-3.1-70b-versatile"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "cohere",
+        aliases: &["cohere", "co"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.cohere.com/v2"),
+            api_key_env: Some("COHERE_API_KEY"),
+            default_model: Some("command-r-plus"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "fireworks",
+        aliases: &["fireworks", "fw"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.fireworks.ai/inference/v1"),
+            api_key_env: Some("FIREWORKS_API_KEY"),
+            default_model: Some("accounts/fireworks/models/llama-v3p1-70b-instruct"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "together",
+        aliases: &["together", "tg"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.together.xyz/v1"),
+            api_key_env: Some("TOGETHER_API_KEY"),
+            default_model: Some("meta-llama/Llama-3.1-70B-Instruct-Turbo"),
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "zai",
+        aliases: &["zai", "zhipu", "zhi"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.z.ai/api/paas/v4"),
+            api_key_env: Some("ZAI_API_KEY"),
+            default_model: Some("glm-4.5"),
+        },
+    },
+];
+
+pub fn list_builtin_adapters() -> Vec<BuiltinAdapterInfo> {
+    BUILTIN_ADAPTER_SPECS
+        .iter()
+        .map(|spec| BuiltinAdapterInfo {
+            name: spec.name.to_string(),
+            aliases: spec
+                .aliases
+                .iter()
+                .filter(|alias| **alias != spec.name)
+                .map(|alias| (*alias).to_string())
+                .collect(),
+            default_base_url: spec.defaults.base_url.map(str::to_string),
+            api_key_env: spec.defaults.api_key_env.map(str::to_string),
+            default_model: spec.defaults.default_model.map(str::to_string),
+        })
+        .collect()
 }
 
 pub fn resolve_runtime_config(
     mut app: AppConfigV2,
     args: &Args,
 ) -> Result<ResolvedRuntimeConfig, LlmProbeError> {
-    ensure_provider_profiles(&mut app, args);
+    ensure_profiles(&mut app, args);
 
-    let selected_name = select_provider_name(&app, args)?;
-    let mut profile = app.providers.get(&selected_name).cloned().ok_or_else(|| {
-        LlmProbeError::ConfigError(format!("Provider profile not found: {selected_name}"))
-    })?;
+    let selected_name = select_profile_name(&app, args)?;
+    let mut profile =
+        app.profiles.get(&selected_name).cloned().ok_or_else(|| {
+            LlmProbeError::ConfigError(format!("Profile not found: {selected_name}"))
+        })?;
 
-    if let Some(provider_arg) = &args.provider {
-        profile.adapter = provider_arg.clone();
-    }
-    apply_cli_provider_defaults(&mut profile, args);
+    apply_cli_adapter_override(&mut profile, args);
+    profile.adapter = normalize_adapter_name(&profile.adapter);
+    let adapter_name = profile.adapter.clone();
+    apply_adapter_defaults_into_profile(&mut profile, adapter_spec(&adapter_name), true);
 
     let adapter = normalize_adapter_name(&profile.adapter);
     let base_url = args
-        .url
+        .base_url
         .as_ref()
-        .map(|v| v.trim().to_string())
+        .map(|v| normalize_base_url(v))
         .filter(|v| !v.is_empty())
         .or_else(|| {
             profile
                 .base_url
                 .as_ref()
-                .map(|v| v.trim().to_string())
+                .map(|v| normalize_base_url(v))
                 .filter(|v| !v.is_empty())
         });
     let model = args
@@ -124,13 +254,12 @@ pub fn resolve_runtime_config(
         .or(profile.model.clone())
         .unwrap_or_default();
 
-    let openai_api = args
-        .endpoint
-        .or(profile.openai_api)
-        .or(app.defaults.openai_api)
+    let api_mode = args
+        .api_mode
+        .or(profile.api_mode)
+        .or(app.defaults.api_mode)
         .unwrap_or(OpenAiApiMode::Auto);
-    let (effective_model, openai_api_enforced) =
-        resolve_effective_model(&adapter, &model, openai_api);
+    let (effective_model, api_mode_enforced) = resolve_effective_model(&adapter, &model, api_mode);
 
     let stream = if args.no_stream {
         false
@@ -138,6 +267,11 @@ pub fn resolve_runtime_config(
         true
     } else {
         profile.stream.or(app.defaults.stream).unwrap_or(true)
+    };
+    let no_proxy = if args.no_proxy {
+        true
+    } else {
+        profile.no_proxy.or(app.defaults.no_proxy).unwrap_or(false)
     };
 
     let (api_key, api_key_source) = resolve_api_key(&adapter, &profile, args);
@@ -153,7 +287,6 @@ pub fn resolve_runtime_config(
     }
     let (context, system) = split_system_messages(context, None);
 
-    let provider_for_legacy_backend = legacy_provider_name(&adapter);
     let requested_reasoning = args
         .reasoning
         .clone()
@@ -169,9 +302,8 @@ pub fn resolve_runtime_config(
     )?;
 
     Ok(ResolvedRuntimeConfig {
-        active_provider: selected_name,
+        active_profile: selected_name,
         adapter,
-        provider_for_legacy_backend,
         model,
         base_url,
         api_key,
@@ -181,15 +313,14 @@ pub fn resolve_runtime_config(
         max_tokens: profile.max_tokens,
         temperature: profile.temperature,
         top_p: profile.top_p,
-        top_k: None,
+        top_k: profile.top_k,
         system,
         timeout_seconds: profile.timeout_seconds.or(app.defaults.timeout_seconds),
-        reasoning: None,
         reasoning_effort: reasoning_resolution.effort,
-        reasoning_budget_tokens: None,
-        openai_api,
-        openai_api_enforced,
+        api_mode,
+        api_mode_enforced,
         effective_model,
+        no_proxy,
         reasoning_setting: reasoning_resolution.setting,
         capture_usage: app.defaults.capture_usage.unwrap_or(true),
         capture_reasoning_content: reasoning_resolution.capture_reasoning_content,
@@ -225,9 +356,6 @@ fn resolve_reasoning_controls(
 
     match control {
         ReasoningControl::Off => {
-            // Aliyun/DashScope thinking models use this OpenAI-compatible
-            // extension to disable server-side thinking. The vendored genai
-            // patch forwards extra_body through the normal genai path.
             if adapter == "aliyun" || extra_body.contains_key("enable_thinking") {
                 extra_body.insert("enable_thinking".to_string(), Value::Bool(false));
             }
@@ -300,22 +428,16 @@ fn parse_reasoning_control(input: &str) -> Result<ReasoningControl, LlmProbeErro
     )))
 }
 
-fn resolve_effective_model(
-    adapter: &str,
-    model: &str,
-    openai_api: OpenAiApiMode,
-) -> (String, bool) {
+fn resolve_effective_model(adapter: &str, model: &str, api_mode: OpenAiApiMode) -> (String, bool) {
     if model.trim().is_empty() {
         return (String::new(), false);
     }
 
     if let Some((namespace, _)) = model.split_once("::") {
-        // Preserve explicit namespace from user config/CLI.
-        // This allows power users to force adapter/protocol manually.
         return (model.to_string(), namespace.starts_with("openai"));
     }
 
-    let namespaced = match (adapter, openai_api) {
+    let namespaced = match (adapter, api_mode) {
         ("openai", OpenAiApiMode::Responses) => format!("openai_resp::{model}"),
         ("openai", OpenAiApiMode::ChatCompletions) => format!("openai::{model}"),
         ("openai", OpenAiApiMode::Auto) => format!("openai::{model}"),
@@ -333,191 +455,55 @@ fn resolve_effective_model(
         ("zai", _) => format!("zai::{model}"),
         _ => model.to_string(),
     };
-    let enforced = matches!(adapter, "openai" | "aliyun") && openai_api != OpenAiApiMode::Auto;
+    let enforced = matches!(adapter, "openai" | "aliyun") && api_mode != OpenAiApiMode::Auto;
     (namespaced, enforced)
 }
 
-fn ensure_provider_profiles(app: &mut AppConfigV2, args: &Args) {
-    if !app.providers.is_empty() {
+fn ensure_profiles(app: &mut AppConfigV2, args: &Args) {
+    if !app.profiles.is_empty() {
         return;
     }
 
-    let mut profile = ProviderProfile::default();
-    apply_preset_into_profile(&mut profile, resolve_cli_preset(args), true);
+    let profile = ProviderProfile {
+        adapter: args
+            .adapter
+            .as_deref()
+            .map(normalize_adapter_name)
+            .unwrap_or_else(|| "openai".to_string()),
+        ..ProviderProfile::default()
+    };
+    app.profiles.insert("default".to_string(), profile);
 
-    if profile.adapter.is_empty() {
-        profile.adapter = args
-            .provider
-            .clone()
-            .unwrap_or_else(|| "openai".to_string());
-    }
-
-    app.providers.insert("default".to_string(), profile);
-
-    if app.active_provider.is_none() {
-        app.active_provider = Some("default".to_string());
+    if app.active_profile.is_none() {
+        app.active_profile = Some("default".to_string());
     }
 }
 
-#[derive(Clone, Copy)]
-struct BuiltinProviderPreset {
-    adapter: &'static str,
-    base_url: Option<&'static str>,
-    api_key_env: Option<&'static str>,
-    default_model: Option<&'static str>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BuiltinPresetInfo {
-    pub name: String,
-    pub aliases: Vec<String>,
-    pub adapter: String,
-    pub base_url: Option<String>,
-    pub api_key_env: Option<String>,
-    pub default_model: Option<String>,
-}
-
-#[derive(Clone, Copy)]
-struct BuiltinPresetSpec {
-    name: &'static str,
-    aliases: &'static [&'static str],
-    preset: BuiltinProviderPreset,
-}
-
-fn builtin_preset_specs() -> &'static [BuiltinPresetSpec] {
-    &[
-        BuiltinPresetSpec {
-            name: "openai",
-            aliases: &["openai", "openai-compatible", "openai_compatible"],
-            preset: BuiltinProviderPreset {
-                adapter: "openai",
-                base_url: Some("https://api.openai.com/v1"),
-                api_key_env: Some("OPENAI_API_KEY"),
-                default_model: Some("gpt-4o"),
-            },
-        },
-        BuiltinPresetSpec {
-            name: "aliyun",
-            aliases: &["aliyun", "dashscope"],
-            preset: BuiltinProviderPreset {
-                adapter: "aliyun",
-                base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1/"),
-                api_key_env: Some("ALIYUN_API_KEY"),
-                default_model: Some("qwen-max"),
-            },
-        },
-        BuiltinPresetSpec {
-            name: "anthropic",
-            aliases: &["anthropic", "claude"],
-            preset: BuiltinProviderPreset {
-                adapter: "anthropic",
-                base_url: Some("https://api.anthropic.com"),
-                api_key_env: Some("ANTHROPIC_API_KEY"),
-                default_model: Some("claude-sonnet-4-5"),
-            },
-        },
-        BuiltinPresetSpec {
-            name: "gemini",
-            aliases: &["gemini", "google"],
-            preset: BuiltinProviderPreset {
-                adapter: "gemini",
-                base_url: Some("https://generativelanguage.googleapis.com/v1beta"),
-                api_key_env: Some("GEMINI_API_KEY"),
-                default_model: Some("gemini-2.5-pro"),
-            },
-        },
-        BuiltinPresetSpec {
-            name: "ollama",
-            aliases: &["ollama"],
-            preset: BuiltinProviderPreset {
-                adapter: "ollama",
-                base_url: Some("http://localhost:11434"),
-                api_key_env: None,
-                default_model: Some("llama3.1"),
-            },
-        },
-        BuiltinPresetSpec {
-            name: "deepseek",
-            aliases: &["deepseek"],
-            preset: BuiltinProviderPreset {
-                adapter: "deepseek",
-                base_url: Some("https://api.deepseek.com/v1"),
-                api_key_env: Some("DEEPSEEK_API_KEY"),
-                default_model: Some("deepseek-chat"),
-            },
-        },
-        BuiltinPresetSpec {
-            name: "groq",
-            aliases: &["groq"],
-            preset: BuiltinProviderPreset {
-                adapter: "groq",
-                base_url: Some("https://api.groq.com/openai/v1"),
-                api_key_env: Some("GROQ_API_KEY"),
-                default_model: Some("llama-3.1-70b-versatile"),
-            },
-        },
-        BuiltinPresetSpec {
-            name: "mistral",
-            aliases: &["mistral"],
-            preset: BuiltinProviderPreset {
-                adapter: "mistral",
-                base_url: Some("https://api.mistral.ai/v1"),
-                api_key_env: Some("MISTRAL_API_KEY"),
-                default_model: Some("mistral-large-latest"),
-            },
-        },
-    ]
-}
-
-pub fn list_builtin_provider_presets() -> Vec<BuiltinPresetInfo> {
-    builtin_preset_specs()
-        .iter()
-        .map(|spec| BuiltinPresetInfo {
-            name: spec.name.to_string(),
-            aliases: spec.aliases.iter().map(|v| (*v).to_string()).collect(),
-            adapter: spec.preset.adapter.to_string(),
-            base_url: spec.preset.base_url.map(str::to_string),
-            api_key_env: spec.preset.api_key_env.map(str::to_string),
-            default_model: spec.preset.default_model.map(str::to_string),
-        })
-        .collect()
-}
-
-fn resolve_cli_preset(args: &Args) -> Option<BuiltinProviderPreset> {
-    if let Some(provider) = args.provider.as_deref() {
-        return preset_by_alias(provider);
-    }
-    preset_by_alias("openai")
-}
-
-fn apply_cli_provider_defaults(profile: &mut ProviderProfile, args: &Args) {
-    let preset = args.provider.as_deref().and_then(preset_by_alias);
-    let provider_overridden = args.provider.is_some();
-    let model_explicitly_overridden = args.model.is_some();
-
-    apply_preset_into_profile(profile, preset, false);
-
-    // If user explicitly switches provider via CLI (e.g. `-p aliyun`) and does
-    // not pass `-m`, we should also switch to that provider's default model.
-    // This avoids invalid cross-provider defaults like `aliyun + gpt-4o`.
-    if provider_overridden && !model_explicitly_overridden {
-        if let Some(preset) = preset {
-            profile.model = preset.default_model.map(str::to_string);
+fn apply_cli_adapter_override(profile: &mut ProviderProfile, args: &Args) {
+    if let Some(adapter_arg) = args.adapter.as_deref() {
+        profile.adapter = normalize_adapter_name(adapter_arg);
+        profile.base_url = None;
+        profile.api_key_env = None;
+        profile.api_key = None;
+        profile.api_mode = None;
+        profile.extra_body.clear();
+        if args.model.is_none() {
+            profile.model = None;
         }
     }
 }
 
-fn apply_preset_into_profile(
+fn apply_adapter_defaults_into_profile(
     profile: &mut ProviderProfile,
-    preset: Option<BuiltinProviderPreset>,
+    spec: Option<&BuiltinAdapterSpec>,
     fill_model_when_missing: bool,
 ) {
-    let Some(preset) = preset else {
+    let Some(spec) = spec else {
         return;
     };
 
     if profile.adapter.trim().is_empty() {
-        profile.adapter = preset.adapter.to_string();
+        profile.adapter = spec.name.to_string();
     }
     if profile
         .base_url
@@ -526,7 +512,7 @@ fn apply_preset_into_profile(
         .trim()
         .is_empty()
     {
-        profile.base_url = preset.base_url.map(str::to_string);
+        profile.base_url = spec.defaults.base_url.map(str::to_string);
     }
     if profile
         .api_key_env
@@ -535,7 +521,7 @@ fn apply_preset_into_profile(
         .trim()
         .is_empty()
     {
-        profile.api_key_env = preset.api_key_env.map(str::to_string);
+        profile.api_key_env = spec.defaults.api_key_env.map(str::to_string);
     }
     if (fill_model_when_missing || profile.model.is_none())
         && profile
@@ -545,55 +531,68 @@ fn apply_preset_into_profile(
             .trim()
             .is_empty()
     {
-        profile.model = preset.default_model.map(str::to_string);
+        profile.model = spec.defaults.default_model.map(str::to_string);
     }
 }
 
-fn preset_by_alias(alias: &str) -> Option<BuiltinProviderPreset> {
+fn adapter_spec(alias: &str) -> Option<&'static BuiltinAdapterSpec> {
     let alias = alias.trim().to_lowercase();
-    builtin_preset_specs()
+    BUILTIN_ADAPTER_SPECS
         .iter()
-        .find(|spec| spec.aliases.contains(&alias.as_str()))
-        .map(|spec| spec.preset)
+        .find(|spec| spec.aliases.contains(&alias.as_str()) || spec.name == alias)
 }
 
-fn select_provider_name(app: &AppConfigV2, args: &Args) -> Result<String, LlmProbeError> {
+fn select_profile_name(app: &AppConfigV2, args: &Args) -> Result<String, LlmProbeError> {
     if let Some(name) = &args.profile {
-        if app.providers.contains_key(name) {
+        if app.profiles.contains_key(name) {
             return Ok(name.clone());
         }
         return Err(LlmProbeError::ConfigError(format!(
-            "Provider profile not found: {name}"
+            "Profile not found: {name}"
         )));
     }
 
-    if let Some(active) = &app.active_provider {
-        if app.providers.contains_key(active) {
+    if let Some(active) = &app.active_profile {
+        if app.profiles.contains_key(active) {
             return Ok(active.clone());
         }
+        return Err(LlmProbeError::ConfigError(format!(
+            "active_profile points to a missing profile: {active}"
+        )));
     }
 
-    app.providers.keys().next().cloned().ok_or_else(|| {
-        LlmProbeError::ConfigError("No provider profiles are configured".to_string())
-    })
+    app.profiles
+        .keys()
+        .next()
+        .cloned()
+        .ok_or_else(|| LlmProbeError::ConfigError("No profiles are configured".to_string()))
+}
+
+fn normalize_base_url(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let Ok(mut parsed) = reqwest::Url::parse(trimmed) else {
+        return trimmed.to_string();
+    };
+    let path = parsed.path().to_string();
+    if !path.ends_with('/') {
+        parsed.set_path(&format!("{path}/"));
+    }
+    parsed.to_string()
 }
 
 fn normalize_adapter_name(raw: &str) -> String {
-    match raw.trim().to_lowercase().as_str() {
-        "openai-compatible" | "openai_compatible" => "openai".to_string(),
-        "dashscope" | "aliyun" => "aliyun".to_string(),
+    let normalized = raw.trim().to_lowercase();
+    if let Some(spec) = adapter_spec(&normalized) {
+        return spec.name.to_string();
+    }
+    match normalized.as_str() {
         "openairesp" | "openai_resp" | "openai-resp" => "openai".to_string(),
-        "google" => "gemini".to_string(),
-        "claude" => "anthropic".to_string(),
         other => other.to_string(),
     }
-}
-
-fn legacy_provider_name(adapter: &str) -> String {
-    // Keep the explicit legacy diagnostic path adapter-aligned. The old
-    // `openai-compatible` remap hid protocol decisions and made dry-run output
-    // disagree with execution.
-    adapter.to_string()
 }
 
 fn resolve_api_key(
@@ -637,17 +636,9 @@ fn resolve_api_key(
 }
 
 fn default_env_var(adapter: &str) -> Option<String> {
-    match adapter {
-        "openai" => Some("OPENAI_API_KEY".to_string()),
-        "aliyun" => Some("ALIYUN_API_KEY".to_string()),
-        "anthropic" => Some("ANTHROPIC_API_KEY".to_string()),
-        "gemini" => Some("GEMINI_API_KEY".to_string()),
-        "deepseek" => Some("DEEPSEEK_API_KEY".to_string()),
-        "xai" => Some("XAI_API_KEY".to_string()),
-        "groq" => Some("GROQ_API_KEY".to_string()),
-        "mistral" => Some("MISTRAL_API_KEY".to_string()),
-        _ => None,
-    }
+    adapter_spec(adapter)
+        .and_then(|spec| spec.defaults.api_key_env)
+        .map(str::to_string)
 }
 
 fn split_system_messages(
@@ -688,32 +679,31 @@ mod tests {
             config: None,
             model: None,
             list: false,
-            list_presets: false,
+            list_adapters: false,
             message: Vec::new(),
-            provider: None,
+            adapter: None,
             profile: None,
-            url: None,
+            base_url: None,
             secret: None,
             key: None,
             stream: false,
             no_stream: false,
+            no_proxy: false,
             version: false,
             init: None,
             init_path: None,
             convert: None,
-            endpoint: None,
+            api_mode: None,
             reasoning: None,
             dry_run: false,
             doctor_config: false,
-            legacy_runtime: false,
-            allow_sdk_default_api: false,
         }
     }
 
     #[test]
     fn resolve_uses_cli_overrides_and_profile_defaults() {
-        let mut providers = BTreeMap::new();
-        providers.insert(
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
             "openai_main".to_string(),
             ProviderProfile {
                 adapter: "openai".to_string(),
@@ -724,12 +714,12 @@ mod tests {
         );
         let app = AppConfigV2 {
             version: Some(2),
-            active_provider: Some("openai_main".to_string()),
+            active_profile: Some("openai_main".to_string()),
             defaults: DefaultsConfig {
                 stream: Some(true),
                 ..DefaultsConfig::default()
             },
-            providers,
+            profiles,
             context: vec![Message {
                 role: "user".to_string(),
                 content: "from-file".to_string(),
@@ -740,21 +730,21 @@ mod tests {
         input.model = Some("gpt-5".to_string());
         input.stream = true;
         input.message = vec!["from-cli".to_string()];
-        input.endpoint = Some(OpenAiApiMode::Responses);
+        input.api_mode = Some(OpenAiApiMode::Responses);
 
         let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
         assert_eq!(resolved.model, "gpt-5");
         assert_eq!(resolved.effective_model, "openai_resp::gpt-5");
         assert!(resolved.stream);
         assert_eq!(resolved.context.len(), 2);
-        assert_eq!(resolved.openai_api, OpenAiApiMode::Responses);
-        assert!(resolved.openai_api_enforced);
+        assert_eq!(resolved.api_mode, OpenAiApiMode::Responses);
+        assert!(resolved.api_mode_enforced);
     }
 
     #[test]
     fn resolve_supports_profile_switch_via_profile_arg() {
-        let mut providers = BTreeMap::new();
-        providers.insert(
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
             "openai_main".to_string(),
             ProviderProfile {
                 adapter: "openai".to_string(),
@@ -762,7 +752,7 @@ mod tests {
                 ..ProviderProfile::default()
             },
         );
-        providers.insert(
+        profiles.insert(
             "anthropic_main".to_string(),
             ProviderProfile {
                 adapter: "anthropic".to_string(),
@@ -772,9 +762,9 @@ mod tests {
         );
         let app = AppConfigV2 {
             version: Some(2),
-            active_provider: Some("openai_main".to_string()),
+            active_profile: Some("openai_main".to_string()),
             defaults: DefaultsConfig::default(),
-            providers,
+            profiles,
             context: Vec::new(),
         };
 
@@ -782,36 +772,13 @@ mod tests {
         input.profile = Some("anthropic_main".to_string());
 
         let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
-        assert_eq!(resolved.active_provider, "anthropic_main");
+        assert_eq!(resolved.active_profile, "anthropic_main");
         assert_eq!(resolved.adapter, "anthropic");
         assert_eq!(resolved.model, "claude-sonnet");
     }
 
     #[test]
-    fn resolve_keeps_adapter_for_legacy_backend() {
-        let mut providers = BTreeMap::new();
-        providers.insert(
-            "compat".to_string(),
-            ProviderProfile {
-                adapter: "openai".to_string(),
-                ..ProviderProfile::default()
-            },
-        );
-        let app = AppConfigV2 {
-            version: Some(2),
-            active_provider: Some("compat".to_string()),
-            defaults: DefaultsConfig::default(),
-            providers,
-            context: Vec::new(),
-        };
-
-        let resolved = resolve_runtime_config(app, &args()).expect("resolve failed");
-        assert_eq!(resolved.provider_for_legacy_backend, "openai");
-        assert_eq!(resolved.reasoning, None);
-    }
-
-    #[test]
-    fn ensure_default_profile_uses_openai_preset_when_no_input() {
+    fn default_profile_uses_openai_adapter_defaults() {
         let app = AppConfigV2::default();
         let resolved = resolve_runtime_config(app, &args()).expect("resolve failed");
 
@@ -819,15 +786,15 @@ mod tests {
         assert_eq!(resolved.model, "gpt-4o");
         assert_eq!(
             resolved.base_url.as_deref(),
-            Some("https://api.openai.com/v1")
+            Some("https://api.openai.com/v1/")
         );
     }
 
     #[test]
-    fn provider_alias_applies_builtin_preset_for_quick_start() {
+    fn adapter_alias_applies_builtin_defaults_for_quick_start() {
         let app = AppConfigV2::default();
         let mut input = args();
-        input.provider = Some("dashscope".to_string());
+        input.adapter = Some("ds".to_string());
 
         let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
         assert_eq!(resolved.adapter, "aliyun");
@@ -839,10 +806,10 @@ mod tests {
     }
 
     #[test]
-    fn unknown_provider_without_preset_keeps_raw_adapter() {
+    fn unknown_adapter_keeps_raw_name() {
         let app = AppConfigV2::default();
         let mut input = args();
-        input.provider = Some("my_custom_adapter".to_string());
+        input.adapter = Some("my_custom_adapter".to_string());
 
         let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
         assert_eq!(resolved.adapter, "my_custom_adapter");
@@ -850,10 +817,44 @@ mod tests {
     }
 
     #[test]
-    fn provider_arg_overrides_selected_profile_adapter() {
-        let mut providers = BTreeMap::new();
-        providers.insert(
+    fn adapter_arg_overrides_selected_profile_identity() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
             "profile_a".to_string(),
+            ProviderProfile {
+                adapter: "openai".to_string(),
+                model: Some("gpt-4o".to_string()),
+                base_url: Some("https://api.openai.com/v1".to_string()),
+                api_key_env: Some("OPENAI_API_KEY".to_string()),
+                ..ProviderProfile::default()
+            },
+        );
+        let app = AppConfigV2 {
+            version: Some(2),
+            active_profile: Some("profile_a".to_string()),
+            defaults: DefaultsConfig::default(),
+            profiles,
+            context: Vec::new(),
+        };
+
+        let mut input = args();
+        input.adapter = Some("aliyun".to_string());
+
+        let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
+        assert_eq!(resolved.active_profile, "profile_a");
+        assert_eq!(resolved.adapter, "aliyun");
+        assert_eq!(resolved.model, "qwen-max");
+        assert_eq!(
+            resolved.base_url.as_deref(),
+            Some("https://dashscope.aliyuncs.com/compatible-mode/v1/")
+        );
+    }
+
+    #[test]
+    fn invalid_active_profile_is_rejected() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "openai_main".to_string(),
             ProviderProfile {
                 adapter: "openai".to_string(),
                 model: Some("gpt-4o".to_string()),
@@ -862,28 +863,41 @@ mod tests {
         );
         let app = AppConfigV2 {
             version: Some(2),
-            active_provider: Some("profile_a".to_string()),
+            active_profile: Some("missing_profile".to_string()),
             defaults: DefaultsConfig::default(),
-            providers,
+            profiles,
             context: Vec::new(),
         };
 
-        let mut input = args();
-        input.provider = Some("dashscope".to_string());
-
-        let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
-        assert_eq!(resolved.active_provider, "profile_a");
-        assert_eq!(resolved.adapter, "aliyun");
-        assert_eq!(resolved.model, "qwen-max");
-        assert_eq!(
-            resolved.base_url.as_deref(),
-            Some("https://dashscope.aliyuncs.com/compatible-mode/v1/")
-        );
+        let err = resolve_runtime_config(app, &args()).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("active_profile points to a missing profile"));
     }
 
     #[test]
-    fn builtin_preset_list_contains_openai_and_aliyun() {
-        let list = list_builtin_provider_presets();
+    fn defaults_only_v2_file_keeps_defaults_semantics() {
+        let app = AppConfigV2 {
+            version: Some(2),
+            active_profile: None,
+            defaults: DefaultsConfig {
+                stream: Some(false),
+                no_proxy: Some(true),
+                ..DefaultsConfig::default()
+            },
+            profiles: BTreeMap::new(),
+            context: Vec::new(),
+        };
+
+        let resolved = resolve_runtime_config(app, &args()).expect("resolve failed");
+        assert!(!resolved.stream);
+        assert!(resolved.no_proxy);
+        assert_eq!(resolved.api_mode, OpenAiApiMode::Auto);
+    }
+
+    #[test]
+    fn builtin_adapter_list_contains_openai_and_aliyun() {
+        let list = list_builtin_adapters();
         assert!(list.iter().any(|p| p.name == "openai"));
         assert!(list.iter().any(|p| p.name == "aliyun"));
         assert!(list
@@ -899,6 +913,112 @@ mod tests {
 
         let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
         assert!(!resolved.stream);
+    }
+
+    #[test]
+    fn no_proxy_propagates_to_resolved_runtime() {
+        let app = AppConfigV2::default();
+        let mut input = args();
+        input.no_proxy = true;
+
+        let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
+        assert!(resolved.no_proxy);
+    }
+
+    #[test]
+    fn base_url_is_normalized_to_directory_semantics() {
+        let app = AppConfigV2::default();
+        let mut input = args();
+        input.base_url = Some("https://fastai.enncloud.cn/v1".to_string());
+
+        let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
+        assert_eq!(
+            resolved.base_url.as_deref(),
+            Some("https://fastai.enncloud.cn/v1/")
+        );
+    }
+
+    #[test]
+    fn base_url_with_trailing_slash_is_preserved() {
+        let app = AppConfigV2::default();
+        let mut input = args();
+        input.base_url = Some("https://fastai.enncloud.cn/v1/".to_string());
+
+        let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
+        assert_eq!(
+            resolved.base_url.as_deref(),
+            Some("https://fastai.enncloud.cn/v1/")
+        );
+    }
+
+    #[test]
+    fn no_proxy_can_come_from_defaults() {
+        let app = AppConfigV2 {
+            version: Some(2),
+            active_profile: None,
+            defaults: DefaultsConfig {
+                no_proxy: Some(true),
+                ..DefaultsConfig::default()
+            },
+            profiles: BTreeMap::new(),
+            context: Vec::new(),
+        };
+
+        let resolved = resolve_runtime_config(app, &args()).expect("resolve failed");
+        assert!(resolved.no_proxy);
+    }
+
+    #[test]
+    fn no_proxy_profile_overrides_defaults() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "openai_main".to_string(),
+            ProviderProfile {
+                adapter: "openai".to_string(),
+                model: Some("gpt-4o".to_string()),
+                no_proxy: Some(false),
+                ..ProviderProfile::default()
+            },
+        );
+        let app = AppConfigV2 {
+            version: Some(2),
+            active_profile: Some("openai_main".to_string()),
+            defaults: DefaultsConfig {
+                no_proxy: Some(true),
+                ..DefaultsConfig::default()
+            },
+            profiles,
+            context: Vec::new(),
+        };
+
+        let resolved = resolve_runtime_config(app, &args()).expect("resolve failed");
+        assert!(!resolved.no_proxy);
+    }
+
+    #[test]
+    fn cli_no_proxy_overrides_profile_setting() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "openai_main".to_string(),
+            ProviderProfile {
+                adapter: "openai".to_string(),
+                model: Some("gpt-4o".to_string()),
+                no_proxy: Some(false),
+                ..ProviderProfile::default()
+            },
+        );
+        let app = AppConfigV2 {
+            version: Some(2),
+            active_profile: Some("openai_main".to_string()),
+            defaults: DefaultsConfig::default(),
+            profiles,
+            context: Vec::new(),
+        };
+        let mut input = args();
+        input.no_proxy = true;
+
+        let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
+        assert!(resolved.no_proxy);
     }
 
     #[test]
@@ -921,7 +1041,7 @@ mod tests {
 
     #[test]
     fn reasoning_overrides_enable_thinking_when_present() {
-        let mut providers = BTreeMap::new();
+        let mut profiles = BTreeMap::new();
         let mut profile = ProviderProfile {
             adapter: "aliyun".to_string(),
             model: Some("glm-5".to_string()),
@@ -930,13 +1050,13 @@ mod tests {
         profile
             .extra_body
             .insert("enable_thinking".to_string(), serde_json::json!(true));
-        providers.insert("ali".to_string(), profile);
+        profiles.insert("ali".to_string(), profile);
 
         let app = AppConfigV2 {
             version: Some(2),
-            active_provider: Some("ali".to_string()),
+            active_profile: Some("ali".to_string()),
             defaults: DefaultsConfig::default(),
-            providers,
+            profiles,
             context: Vec::new(),
         };
 
@@ -952,8 +1072,8 @@ mod tests {
 
     #[test]
     fn reasoning_off_injects_enable_thinking_false_for_aliyun() {
-        let mut providers = BTreeMap::new();
-        providers.insert(
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
             "ali".to_string(),
             ProviderProfile {
                 adapter: "aliyun".to_string(),
@@ -964,9 +1084,9 @@ mod tests {
 
         let app = AppConfigV2 {
             version: Some(2),
-            active_provider: Some("ali".to_string()),
+            active_profile: Some("ali".to_string()),
             defaults: DefaultsConfig::default(),
-            providers,
+            profiles,
             context: Vec::new(),
         };
 

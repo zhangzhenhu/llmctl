@@ -1,5 +1,5 @@
 use crate::config::{
-    BuiltinPresetInfo, ConfigDiagnostic, DiagnosticSeverity, ResolvedRuntimeConfig,
+    BuiltinAdapterInfo, ConfigDiagnostic, DiagnosticSeverity, ResolvedRuntimeConfig,
     ValidationReport,
 };
 use crate::provider::ChatResponse;
@@ -54,26 +54,25 @@ fn sorted_unique_model_names(models: &[crate::provider::ModelInfo]) -> Vec<Strin
     names
 }
 
-pub fn print_builtin_presets(presets: &[BuiltinPresetInfo]) {
-    println!("{}", "Built-in Provider Presets".green());
+pub fn print_adapter_list(adapters: &[BuiltinAdapterInfo]) {
+    println!("{}", "Supported Adapters".green());
     println!("{}", "─".repeat(50).dimmed());
-    for preset in presets {
-        println!("name: {}", preset.name);
-        println!("  adapter: {}", preset.adapter);
+    for adapter in adapters {
+        println!("name: {}", adapter.name);
         println!(
-            "  base_url: {}",
-            preset.base_url.as_deref().unwrap_or("<default>")
+            "  default_base_url: {}",
+            adapter.default_base_url.as_deref().unwrap_or("<none>")
         );
         println!(
             "  api_key_env: {}",
-            preset.api_key_env.as_deref().unwrap_or("<none>")
+            adapter.api_key_env.as_deref().unwrap_or("<none>")
         );
         println!(
             "  default_model: {}",
-            preset.default_model.as_deref().unwrap_or("<none>")
+            adapter.default_model.as_deref().unwrap_or("<none>")
         );
-        if !preset.aliases.is_empty() {
-            println!("  aliases: {}", preset.aliases.join(", "));
+        if !adapter.aliases.is_empty() {
+            println!("  aliases: {}", adapter.aliases.join(", "));
         }
         println!("{}", "─".repeat(50).dimmed());
     }
@@ -99,7 +98,7 @@ pub fn format_dry_run_lines(
 ) -> Vec<String> {
     let mut lines = vec![
         format!("runtime_backend: {runtime_backend}"),
-        format!("active_provider: {}", resolved.active_provider),
+        format!("active_profile: {}", resolved.active_profile),
         format!("adapter: {}", resolved.adapter),
         format!("model: {}", resolved.model),
         format!("effective_model: {}", resolved.effective_model),
@@ -109,13 +108,21 @@ pub fn format_dry_run_lines(
         ),
         format!("api_key_source: {}", resolved.api_key_source.as_label()),
         format!("stream: {}", resolved.stream),
-        format!("openai_api_requested: {:?}", resolved.openai_api),
-        format!("openai_api_enforced: {}", resolved.openai_api_enforced),
         format!(
-            "openai_api_runtime: {}",
-            if resolved.openai_api == crate::config::schema::OpenAiApiMode::Auto {
+            "proxy_mode: {}",
+            if resolved.no_proxy {
+                "disabled"
+            } else {
+                "inherit_system"
+            }
+        ),
+        format!("api_mode_requested: {:?}", resolved.api_mode),
+        format!("api_mode_enforced: {}", resolved.api_mode_enforced),
+        format!(
+            "api_mode_runtime: {}",
+            if resolved.api_mode == crate::config::schema::OpenAiApiMode::Auto {
                 "sdk_default"
-            } else if resolved.openai_api_enforced {
+            } else if resolved.api_mode_enforced {
                 "enforced_by_model_namespace"
             } else {
                 "requested_but_not_enforced"
@@ -128,6 +135,13 @@ pub fn format_dry_run_lines(
         format!(
             "reasoning_effort: {}",
             resolved.reasoning_effort.as_deref().unwrap_or("<none>")
+        ),
+        format!(
+            "top_k: {}",
+            resolved
+                .top_k
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "<none>".to_string())
         ),
         format!("capture_usage: {}", resolved.capture_usage),
         format!(
@@ -230,9 +244,8 @@ mod tests {
 
     fn resolved_for_test() -> ResolvedRuntimeConfig {
         ResolvedRuntimeConfig {
-            active_provider: "dashscope_qwen".to_string(),
+            active_profile: "dashscope_qwen".to_string(),
             adapter: "openai".to_string(),
-            provider_for_legacy_backend: "openai-compatible".to_string(),
             model: "qwen3-max".to_string(),
             base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string()),
             api_key: "sk-very-secret".to_string(),
@@ -248,12 +261,11 @@ mod tests {
             top_k: None,
             system: None,
             timeout_seconds: Some(60),
-            reasoning: Some(true),
             reasoning_effort: Some("medium".to_string()),
-            reasoning_budget_tokens: None,
-            openai_api: OpenAiApiMode::ChatCompletions,
-            openai_api_enforced: true,
+            api_mode: OpenAiApiMode::ChatCompletions,
+            api_mode_enforced: true,
             effective_model: "openai::qwen3-max".to_string(),
+            no_proxy: false,
             reasoning_setting: Some("high".to_string()),
             capture_usage: true,
             capture_reasoning_content: true,

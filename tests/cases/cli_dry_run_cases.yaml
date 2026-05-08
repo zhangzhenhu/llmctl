@@ -2,10 +2,10 @@ cases:
   - name: "extra_body_runs_on_genai_with_vendor_patch"
     config_yaml: |
       version: 2
-      active_provider: ali
+      active_profile: ali
       defaults:
         stream: true
-      providers:
+      profiles:
         ali:
           adapter: aliyun
           model: glm-5
@@ -30,40 +30,11 @@ cases:
       - "enable_thinking"
     stderr_contains: []
 
-  - name: "extra_body_can_use_explicit_legacy_runtime"
-    config_yaml: |
-      version: 2
-      active_provider: ali
-      defaults:
-        stream: true
-      providers:
-        ali:
-          adapter: aliyun
-          model: glm-5
-          base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/
-          api_key: test-key
-          extra_body:
-            enable_thinking: true
-    args:
-      - "-c"
-      - "{config_path}"
-      - "--reasoning"
-      - "off"
-      - "--legacy-runtime"
-      - "--dry-run"
-    expect_exit_code: 0
-    stdout_contains:
-      - "runtime_backend: legacy_llm"
-      - "runtime_fallback_reason: explicit_legacy_runtime"
-      - "Warnings"
-      - "legacy_runtime_requested"
-    stderr_contains: []
-
   - name: "endpoint_alias_chat_completions_is_accepted"
     config_yaml: |
       version: 2
-      active_provider: openai_main
-      providers:
+      active_profile: openai_main
+      profiles:
         openai_main:
           adapter: openai
           model: gpt-4o
@@ -71,21 +42,21 @@ cases:
     args:
       - "-c"
       - "{config_path}"
-      - "--endpoint"
+      - "--api-mode"
       - "chat_completions"
       - "--dry-run"
     expect_exit_code: 0
     stdout_contains:
-      - "openai_api_requested: ChatCompletions"
-      - "openai_api_runtime: enforced_by_model_namespace"
+      - "api_mode_requested: ChatCompletions"
+      - "api_mode_runtime: enforced_by_model_namespace"
       - "effective_model: openai::gpt-4o"
     stderr_contains: []
 
   - name: "aliyun_endpoint_responses_is_enforced_with_openai_resp_namespace"
     config_yaml: |
       version: 2
-      active_provider: ali
-      providers:
+      active_profile: ali
+      profiles:
         ali:
           adapter: aliyun
           model: qwen-plus
@@ -94,24 +65,24 @@ cases:
     args:
       - "-c"
       - "{config_path}"
-      - "--endpoint"
+      - "--api-mode"
       - "responses"
       - "--dry-run"
     expect_exit_code: 0
     stdout_contains:
       - "adapter: aliyun"
-      - "openai_api_requested: Responses"
-      - "openai_api_runtime: enforced_by_model_namespace"
+      - "api_mode_requested: Responses"
+      - "api_mode_runtime: enforced_by_model_namespace"
       - "effective_model: openai_resp::qwen-plus"
     stderr_contains: []
 
   - name: "no_stream_overrides_default_stream_true"
     config_yaml: |
       version: 2
-      active_provider: openai_main
+      active_profile: openai_main
       defaults:
         stream: true
-      providers:
+      profiles:
         openai_main:
           adapter: openai
           model: gpt-4o
@@ -126,11 +97,53 @@ cases:
       - "stream: false"
     stderr_contains: []
 
+  - name: "no_proxy_is_reflected_in_dry_run"
+    config_yaml: |
+      version: 2
+      active_profile: openai_main
+      profiles:
+        openai_main:
+          adapter: openai
+          model: gpt-4o
+          api_key: test-key
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--no-proxy"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "proxy_mode: disabled"
+      - "runtime_backend: genai"
+    stderr_contains: []
+
+  - name: "profile_no_proxy_is_reflected_in_dry_run"
+    config_yaml: |
+      version: 2
+      active_profile: openai_main
+      defaults:
+        no_proxy: false
+      profiles:
+        openai_main:
+          adapter: openai
+          model: gpt-4o
+          api_key: test-key
+          no_proxy: true
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "proxy_mode: disabled"
+      - "runtime_backend: genai"
+    stderr_contains: []
+
   - name: "invalid_reasoning_value_returns_config_error"
     config_yaml: |
       version: 2
-      active_provider: openai_main
-      providers:
+      active_profile: openai_main
+      profiles:
         openai_main:
           adapter: openai
           model: gpt-4o
@@ -146,11 +159,36 @@ cases:
     stderr_contains:
       - "invalid reasoning value"
 
-  - name: "provider_alias_aliyun_sets_expected_defaults"
+  - name: "adapter_alias_aliyun_sets_expected_defaults"
     config_yaml: |
       version: 2
-      active_provider: openai_main
-      providers:
+      active_profile: openai_main
+      profiles:
+        openai_main:
+          adapter: openai
+          model: gpt-4o
+          base_url: https://api.openai.com/v1
+          api_key_env: OPENAI_API_KEY
+          api_key: test-key
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--adapter"
+      - "aliyun"
+      - "--dry-run"
+    expect_exit_code: 1
+    stdout_contains:
+      - "adapter: aliyun"
+      - "model: qwen-max"
+      - "base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/"
+    stderr_contains:
+      - "missing_api_key"
+
+  - name: "invalid_active_profile_fails_fast"
+    config_yaml: |
+      version: 2
+      active_profile: missing_profile
+      profiles:
         openai_main:
           adapter: openai
           model: gpt-4o
@@ -158,21 +196,35 @@ cases:
     args:
       - "-c"
       - "{config_path}"
-      - "--provider"
-      - "aliyun"
       - "--dry-run"
-    expect_exit_code: 0
+    expect_exit_code: 1
+    stdout_contains: []
+    stderr_contains:
+      - "active_profile points to a missing profile"
+
+  - name: "defaults_only_v2_config_keeps_defaults"
+    config_yaml: |
+      version: 2
+      defaults:
+        stream: false
+        no_proxy: true
+    args:
+      - "-c"
+      - "{config_path}"
+      - "--dry-run"
+    expect_exit_code: 1
     stdout_contains:
-      - "adapter: aliyun"
-      - "model: qwen-max"
-      - "base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/"
-    stderr_contains: []
+      - "stream: false"
+      - "proxy_mode: disabled"
+      - "api_mode_requested: Auto"
+    stderr_contains:
+      - "missing_api_key"
 
   - name: "reasoning_off_without_enable_thinking_stays_on_genai"
     config_yaml: |
       version: 2
-      active_provider: ali
-      providers:
+      active_profile: ali
+      profiles:
         ali:
           adapter: aliyun
           model: qwen-plus

@@ -7,6 +7,29 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-05-08
+
+### Changed
+
+- Standardized the v2 CLI and config vocabulary around `adapter`, `profile`, `base_url`, and `api_mode`, while keeping legacy aliases as compatibility shims.
+- Simplified execution to the genai runtime path and removed the older custom backend/runtime branches from `llmctl`.
+- Tightened the documented and generated v2 config shape around `active_profile`, `profiles`, and profile-first overrides.
+
+### Added
+
+- Added `--list-adapters` output with built-in adapter aliases, default endpoints, and quick-start defaults.
+- Added layered proxy controls with CLI `--no-proxy`, `defaults.no_proxy`, and `profiles.<name>.no_proxy`.
+- Added model-list source reporting so `--list` can distinguish live provider `/models` responses from static fallback catalogs.
+
+### Fixed
+
+- Improved v2 config validation errors for unsupported legacy flat configs, invalid version fields, and missing `active_profile` references.
+- Improved OpenAI-compatible streaming tolerance and request passthrough coverage through the vendored `genai` patch set used by `llmctl`.
+
+### Docs
+
+- Refreshed `README.md` and `README_CN.md` to match the current adapter/profile naming, proxy behavior, and runtime architecture notes.
+
 ## [2.0.1] - 2026-05-03
 
 ### Fixed

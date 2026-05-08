@@ -1,27 +1,22 @@
-#![allow(dead_code)]
-mod backends;
-mod builder;
 mod config;
 mod error;
+mod http;
 mod output;
 mod provider;
 mod runtime;
 mod utils;
 use clap::Parser;
 use config::{
-    convert_config, list_builtin_provider_presets, load_app_config, resolve_runtime_config,
+    convert_config, list_builtin_adapters, load_app_config, resolve_runtime_config,
     search_config_file, validate_resolved_config, AppConfigV2, Args,
 };
 use error::LlmProbeError;
 use output::{
-    format_chat_response, format_model_list, print_builtin_presets, print_doctor_report,
+    format_chat_response, format_model_list, print_adapter_list, print_doctor_report,
     print_dry_run, print_error, print_info, print_success,
 };
-use provider::{create_llm_backend, LLMClient};
 use runtime::{merge_plan_diagnostics, plan_runtime, GenaiRuntime, RuntimeBackend};
-// use std::io::Write;
 use std::path::PathBuf;
-// use std::time::Instant;
 use utils::init_config_file;
 
 use clap::CommandFactory;
@@ -54,8 +49,8 @@ fn main() {
 }
 
 fn run(args: Args) -> Result<(), LlmProbeError> {
-    if args.list_presets {
-        print_builtin_presets(&list_builtin_provider_presets());
+    if args.list_adapters {
+        print_adapter_list(&list_builtin_adapters());
         return Ok(());
     }
 
@@ -75,7 +70,7 @@ fn run(args: Args) -> Result<(), LlmProbeError> {
         AppConfigV2::default()
     };
     let resolved = resolve_runtime_config(app_config, &args)?;
-    let plan = plan_runtime(&resolved, &args);
+    let plan = plan_runtime(&resolved);
     let mut report = validate_resolved_config(&resolved, &args);
     merge_plan_diagnostics(&mut report, &plan);
 
@@ -104,32 +99,17 @@ fn run(args: Args) -> Result<(), LlmProbeError> {
         return Ok(());
     }
 
-    if plan.backend == RuntimeBackend::Genai {
-        let genai_runtime = GenaiRuntime::from_resolved(resolved)?;
-        if args.list {
-            return handle_list_genai(&genai_runtime);
-        }
-        return handle_chat_genai(&genai_runtime);
-    }
-
-    if plan.backend != RuntimeBackend::LegacyLlm {
+    if plan.backend != RuntimeBackend::Genai {
         return Err(LlmProbeError::ConfigError(
             "No executable runtime backend is available".to_string(),
         ));
     }
 
-    let runtime_config = resolved.to_legacy_runtime_config();
-    let backend = create_llm_backend(
-        &runtime_config.provider,
-        &runtime_config.api_key,
-        Some(&runtime_config.base_url),
-        &runtime_config.model,
-        Some(&runtime_config),
-    )?;
+    let genai_runtime = GenaiRuntime::from_resolved(resolved)?;
     if args.list {
-        return handle_list(&backend);
+        return handle_list_genai(&genai_runtime);
     }
-    handle_chat(&args, &runtime_config, backend)
+    handle_chat_genai(&genai_runtime)
 }
 
 fn handle_init(args: &Args) -> Result<(), LlmProbeError> {
@@ -166,47 +146,16 @@ fn handle_convert(convert_paths: &[PathBuf]) -> Result<(), LlmProbeError> {
     convert_config(input_path, output_path)
 }
 
-fn handle_list(backend: &LLMClient) -> Result<(), LlmProbeError> {
-    print_info("Fetching model list...");
-
-    let runtime = tokio::runtime::Runtime::new()
-        .map_err(|_| LlmProbeError::ApiError("Failed to create runtime".to_string()))?;
-    let models = runtime.block_on(backend.list_models())?;
-
-    format_model_list(&models);
-    Ok(())
-}
-
 fn handle_list_genai(runtime_client: &GenaiRuntime) -> Result<(), LlmProbeError> {
     print_info("Fetching model list...");
 
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|_| LlmProbeError::ApiError("Failed to create runtime".to_string()))?;
-    let models = runtime.block_on(runtime_client.list_models())?;
+    let result = runtime.block_on(runtime_client.list_models())?;
+    print_info(&format!("Model list source: {}", result.source.as_label()));
 
-    format_model_list(&models);
+    format_model_list(&result.models);
     Ok(())
-}
-
-fn handle_chat(
-    _args: &Args,
-    config: &config::RuntimeConfig,
-    backend: LLMClient,
-) -> Result<(), LlmProbeError> {
-    let runtime = tokio::runtime::Runtime::new()
-        .map_err(|_| LlmProbeError::ApiError("Failed to create runtime".to_string()))?;
-
-    let messages = config.context.clone();
-
-    if config.stream {
-        runtime.block_on(backend.stream_chat(messages, &config.model))?;
-        Ok(())
-    } else {
-        let response = runtime.block_on(backend.chat_completion(messages, &config.model))?;
-
-        format_chat_response(&response);
-        Ok(())
-    }
 }
 
 fn handle_chat_genai(runtime_client: &GenaiRuntime) -> Result<(), LlmProbeError> {

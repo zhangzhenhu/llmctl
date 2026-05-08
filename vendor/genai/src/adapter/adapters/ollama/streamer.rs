@@ -1,6 +1,7 @@
 use crate::adapter::adapters::support::{StreamerCapturedData, StreamerOptions};
 use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
 use crate::chat::{ChatOptionsSet, StopReason, ToolCall, Usage};
+use crate::error::format_error_chain;
 use crate::webc::WebStream;
 use crate::{Error, ModelIden, Result};
 use serde_json::Value;
@@ -171,9 +172,10 @@ impl futures::Stream for OllamaStreamer {
 					}
 				}
 				Some(Err(err)) => {
+					let cause = format_error_chain(err.as_ref());
 					return Poll::Ready(Some(Err(Error::WebStream {
 						model_iden: self.options.model_iden.clone(),
-						cause: err.to_string(),
+						cause,
 						error: err,
 					})));
 				}

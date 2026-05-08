@@ -11,6 +11,30 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 /// GenAI main Result type alias (with genai::Error)
 pub type Result<T> = core::result::Result<T, Error>;
 
+pub(crate) fn format_error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+	let mut parts = vec![error.to_string()];
+	let mut current = error.source();
+
+	while let Some(source) = current {
+		let rendered = source.to_string();
+		if parts.last() != Some(&rendered) {
+			parts.push(rendered);
+		}
+		current = source.source();
+	}
+
+	if parts.len() == 1 {
+		return parts.remove(0);
+	}
+
+	let mut rendered = parts[0].clone();
+	rendered.push_str("\nCaused by:");
+	for (idx, part) in parts.iter().enumerate().skip(1) {
+		rendered.push_str(&format!("\n  {idx}: {part}"));
+	}
+	rendered
+}
+
 /// Main GenAI error
 #[derive(Debug, From, Display)]
 #[allow(missing_docs)]

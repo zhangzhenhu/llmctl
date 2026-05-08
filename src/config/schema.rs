@@ -4,32 +4,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Message {
     pub role: String,
     pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct FileConfig {
-    pub provider: Option<String>,
-    pub base_url: Option<String>,
-    pub api_key: Option<String>,
-    pub model: Option<String>,
-    pub stream: Option<bool>,
-    pub context: Option<Vec<Message>>,
-    pub max_tokens: Option<u32>,
-    pub temperature: Option<f32>,
-    pub top_p: Option<f32>,
-    pub top_k: Option<u32>,
-    pub system: Option<String>,
-    pub timeout_seconds: Option<u64>,
-    #[serde(alias = "enable_thinking")]
-    pub reasoning: Option<bool>,
-    pub reasoning_effort: Option<String>,
-    #[serde(alias = "thinking_budget_tokens")]
-    pub reasoning_budget_tokens: Option<u32>,
-    #[serde(default)]
-    pub extra_body: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
@@ -43,19 +21,23 @@ pub enum OpenAiApiMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct DefaultsConfig {
     pub stream: Option<bool>,
+    pub no_proxy: Option<bool>,
     pub timeout_seconds: Option<u64>,
     pub capture_usage: Option<bool>,
     pub capture_reasoning_content: Option<bool>,
     pub normalize_reasoning_content: Option<bool>,
-    pub openai_api: Option<OpenAiApiMode>,
+    #[serde(alias = "openai_api")]
+    pub api_mode: Option<OpenAiApiMode>,
     /// Unified reasoning control:
     /// off | auto | low | medium | high | xhigh | max | budget:<n>
     pub reasoning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderProfile {
     pub adapter: String,
     pub model: Option<String>,
@@ -63,16 +45,19 @@ pub struct ProviderProfile {
     pub api_key: Option<String>,
     pub api_key_env: Option<String>,
     pub stream: Option<bool>,
+    pub no_proxy: Option<bool>,
     pub timeout_seconds: Option<u64>,
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
     pub top_p: Option<f32>,
+    pub top_k: Option<u32>,
     /// Unified reasoning control:
     /// off | auto | low | medium | high | xhigh | max | budget:<n>
     pub reasoning: Option<String>,
-    /// Backward-compatible alias for old configs.
+    /// Deprecated alias kept within the v2 profile schema.
     pub reasoning_effort: Option<String>,
-    pub openai_api: Option<OpenAiApiMode>,
+    #[serde(alias = "openai_api")]
+    pub api_mode: Option<OpenAiApiMode>,
     #[serde(default)]
     pub extra_body: HashMap<String, serde_json::Value>,
     #[serde(default)]
@@ -80,58 +65,17 @@ pub struct ProviderProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct AppConfigV2 {
     pub version: Option<u32>,
-    pub active_provider: Option<String>,
+    #[serde(alias = "active_provider")]
+    pub active_profile: Option<String>,
     #[serde(default)]
     pub defaults: DefaultsConfig,
-    #[serde(default)]
-    pub providers: BTreeMap<String, ProviderProfile>,
+    #[serde(default, alias = "providers")]
+    pub profiles: BTreeMap<String, ProviderProfile>,
     #[serde(default)]
     pub context: Vec<Message>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RuntimeConfig {
-    pub provider: String,
-    pub base_url: String,
-    pub api_key: String,
-    pub model: String,
-    pub stream: bool,
-    pub context: Vec<Message>,
-    pub max_tokens: Option<u32>,
-    pub temperature: Option<f32>,
-    pub top_p: Option<f32>,
-    pub top_k: Option<u32>,
-    pub system: Option<String>,
-    pub timeout_seconds: Option<u64>,
-    pub reasoning: Option<bool>,
-    pub reasoning_effort: Option<String>,
-    pub reasoning_budget_tokens: Option<u32>,
-    pub extra_body: HashMap<String, serde_json::Value>,
-}
-
-impl RuntimeConfig {
-    pub fn new() -> Self {
-        Self {
-            provider: String::new(),
-            base_url: String::new(),
-            api_key: String::new(),
-            model: String::new(),
-            stream: false,
-            context: Vec::new(),
-            max_tokens: None,
-            temperature: None,
-            top_p: None,
-            top_k: None,
-            system: None,
-            timeout_seconds: None,
-            reasoning: None,
-            reasoning_effort: None,
-            reasoning_budget_tokens: None,
-            extra_body: HashMap::new(),
-        }
-    }
 }
 
 #[derive(Parser, Debug)]
@@ -144,7 +88,7 @@ pub struct Args {
         short = 'c',
         long,
         value_name = "PATH",
-        help = "Config file path (YAML or JSON)"
+        help = "Config file path (v2 YAML or JSON)"
     )]
     pub config: Option<PathBuf>,
 
@@ -159,8 +103,12 @@ pub struct Args {
     #[arg(short, long, help = "List available models from provider")]
     pub list: bool,
 
-    #[arg(long, help = "List built-in provider presets and exit")]
-    pub list_presets: bool,
+    #[arg(
+        long = "list-adapters",
+        alias = "list-presets",
+        help = "List supported adapters, aliases, and built-in defaults"
+    )]
+    pub list_adapters: bool,
 
     #[arg(
         long,
@@ -170,28 +118,30 @@ pub struct Args {
     pub message: Vec<String>,
 
     #[arg(
-        short,
+        short = 'p',
         long,
         value_name = "STRING",
-        help = "Provider adapter or alias: openai, dashscope/aliyun, anthropic/claude, gemini/google, ollama, deepseek, groq, mistral"
+        alias = "provider",
+        help = "Adapter name or alias: openai/oi, aliyun/ali/dashscope, anthropic/claude, gemini/google, ollama, deepseek, xai/grok, groq, cohere, fireworks, together, zai/zhipu"
     )]
-    pub provider: Option<String>,
+    pub adapter: Option<String>,
 
     #[arg(
         short = 'P',
         long,
         value_name = "NAME",
-        help = "Provider profile name from config v2 (providers.<name>)"
+        help = "Profile name from config v2 (profiles.<name>)"
     )]
     pub profile: Option<String>,
 
     #[arg(
-        short,
-        long,
+        short = 'u',
+        long = "base-url",
         value_name = "STRING",
-        help = "API base URL (overrides provider default)"
+        alias = "url",
+        help = "API base URL (overrides profile and adapter default)"
     )]
-    pub url: Option<String>,
+    pub base_url: Option<String>,
 
     #[arg(
         short,
@@ -219,6 +169,12 @@ pub struct Args {
     )]
     pub no_stream: bool,
 
+    #[arg(
+        long = "no-proxy",
+        help = "Disable all proxies for this run (overrides config and reqwest/system proxy settings)"
+    )]
+    pub no_proxy: bool,
+
     #[arg(short, long, help = "Show version information")]
     pub version: bool,
 
@@ -240,17 +196,19 @@ pub struct Args {
     #[arg(
         short = 't',
         long,
+        num_args = 1..=2,
         value_name = "INPUT",
-        help = "Convert config file format (input file, optional output file)"
+        help = "Convert v2 config between YAML and JSON (input file, optional output file)"
     )]
     pub convert: Option<Vec<PathBuf>>,
 
     #[arg(
-        long = "endpoint",
+        long = "api-mode",
         value_enum,
-        help = "OpenAI API endpoint mode: auto, responses, chat-completions (alias: chat_completions)"
+        alias = "endpoint",
+        help = "API mode for OpenAI-compatible adapters: auto, responses, chat-completions (alias: chat_completions)"
     )]
-    pub endpoint: Option<OpenAiApiMode>,
+    pub api_mode: Option<OpenAiApiMode>,
 
     #[arg(
         long = "reasoning",
@@ -264,24 +222,6 @@ pub struct Args {
 
     #[arg(long, help = "Validate configuration and print diagnostics")]
     pub doctor_config: bool,
-
-    #[arg(
-        long = "legacy-runtime",
-        help = "Use the legacy llm runtime explicitly for compatibility diagnostics"
-    )]
-    pub legacy_runtime: bool,
-
-    #[arg(
-        long,
-        help = "Allow OpenAI API mode to fall back to SDK default when endpoint mode cannot be enforced"
-    )]
-    pub allow_sdk_default_api: bool,
-}
-
-impl Default for RuntimeConfig {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[cfg(test)]
@@ -292,19 +232,20 @@ mod tests {
     fn parses_v2_multi_provider_yaml() {
         let yaml = r#"
 version: 2
-active_provider: openai_main
-providers:
+active_profile: openai_main
+profiles:
   openai_main:
     adapter: openai
     model: gpt-5
     api_key_env: OPENAI_API_KEY
-    openai_api: auto
+    api_mode: auto
   anthropic_main:
     adapter: anthropic
     model: claude-sonnet-4-5
     api_key_env: ANTHROPIC_API_KEY
 defaults:
   stream: true
+  no_proxy: true
   capture_usage: true
 context:
   - role: user
@@ -313,16 +254,48 @@ context:
 
         let parsed: AppConfigV2 = serde_yaml::from_str(yaml).expect("failed to parse v2 config");
         assert_eq!(parsed.version, Some(2));
-        assert_eq!(parsed.active_provider.as_deref(), Some("openai_main"));
-        assert_eq!(parsed.providers.len(), 2);
+        assert_eq!(parsed.active_profile.as_deref(), Some("openai_main"));
+        assert_eq!(parsed.profiles.len(), 2);
         assert_eq!(
             parsed
-                .providers
+                .profiles
                 .get("openai_main")
                 .and_then(|p| p.model.as_deref()),
             Some("gpt-5")
         );
         assert_eq!(parsed.defaults.stream, Some(true));
+        assert_eq!(parsed.defaults.no_proxy, Some(true));
         assert_eq!(parsed.context.len(), 1);
+    }
+
+    #[test]
+    fn parse_convert_accepts_optional_output_path() {
+        let args = Args::try_parse_from(["llmctl", "--convert", "in.yaml", "out.json"])
+            .expect("convert should parse");
+        assert_eq!(
+            args.convert,
+            Some(vec![PathBuf::from("in.yaml"), PathBuf::from("out.json")])
+        );
+    }
+
+    #[test]
+    fn parses_legacy_v2_alias_keys() {
+        let yaml = r#"
+version: 2
+active_provider: openai_main
+providers:
+  openai_main:
+    adapter: openai
+    model: gpt-5
+    openai_api: responses
+"#;
+
+        let parsed: AppConfigV2 = serde_yaml::from_str(yaml).expect("failed to parse aliased v2");
+        assert_eq!(parsed.active_profile.as_deref(), Some("openai_main"));
+        assert_eq!(parsed.profiles.len(), 1);
+        assert_eq!(
+            parsed.profiles.get("openai_main").and_then(|p| p.api_mode),
+            Some(OpenAiApiMode::Responses)
+        );
     }
 }

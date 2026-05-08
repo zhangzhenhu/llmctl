@@ -1,141 +1,44 @@
-use crate::config::schema::{Args, FileConfig, Message, RuntimeConfig};
+use crate::config::schema::AppConfigV2;
 use crate::error::LlmProbeError;
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
-pub fn load_config(path: &Path) -> Result<FileConfig, LlmProbeError> {
+const V2_MARKERS: [&str; 7] = [
+    "version",
+    "defaults",
+    "profiles",
+    "active_profile",
+    "providers",
+    "active_provider",
+    "context",
+];
+const LEGACY_V1_KEYS: [&str; 15] = [
+    "provider",
+    "base_url",
+    "api_key",
+    "model",
+    "stream",
+    "no_proxy",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "top_k",
+    "system",
+    "timeout_seconds",
+    "reasoning",
+    "reasoning_effort",
+    "extra_body",
+];
+
+pub fn load_app_config(path: &Path) -> Result<AppConfigV2, LlmProbeError> {
     let content = fs::read_to_string(path)
         .map_err(|_| LlmProbeError::ConfigFileNotFound(path.display().to_string()))?;
+    let value = parse_config_value(path, &content)?;
+    validate_top_level_schema(&value)?;
 
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-    match ext.to_lowercase().as_str() {
-        "yaml" | "yml" => {
-            serde_yaml::from_str(&content).map_err(|_| LlmProbeError::ConfigFormatError)
-        }
-        "json" => serde_json::from_str(&content).map_err(|_| LlmProbeError::ConfigFormatError),
-        _ => Err(LlmProbeError::ConfigFormatError),
-    }
-}
-
-pub fn merge_configs(file_config: Option<FileConfig>, args: &Args) -> RuntimeConfig {
-    let mut config = RuntimeConfig::new();
-
-    if let Some(fc) = file_config {
-        if let Some(provider) = fc.provider {
-            config.provider = provider;
-        }
-        if let Some(base_url) = fc.base_url {
-            config.base_url = base_url;
-        }
-        if let Some(api_key) = fc.api_key {
-            config.api_key = api_key;
-        }
-        if let Some(model) = fc.model {
-            config.model = model;
-        }
-        if let Some(stream) = fc.stream {
-            config.stream = stream;
-        }
-        if let Some(context) = fc.context {
-            config.context = context;
-        }
-        config.max_tokens = fc.max_tokens;
-        config.temperature = fc.temperature;
-        config.top_p = fc.top_p;
-        config.top_k = fc.top_k;
-        config.system = fc.system;
-        config.timeout_seconds = fc.timeout_seconds;
-        config.reasoning = fc.reasoning;
-        config.reasoning_effort = fc.reasoning_effort;
-        config.reasoning_budget_tokens = fc.reasoning_budget_tokens;
-        config.extra_body = fc.extra_body;
-    }
-
-    if let Some(provider) = &args.provider {
-        config.provider = provider.clone();
-    } else if config.provider.is_empty() {
-        config.provider = "openai-compatible".to_string();
-    }
-    if let Some(base_url) = &args.url {
-        config.base_url = base_url.clone();
-    }
-    // Support both --secret (-s) and --key (-k) for API key
-    if let Some(api_key) = &args.secret {
-        config.api_key = api_key.clone();
-    }
-    if let Some(api_key) = &args.key {
-        config.api_key = api_key.clone();
-    }
-    if let Some(model) = &args.model {
-        config.model = model.clone();
-    }
-    if args.stream {
-        config.stream = true;
-    }
-
-    for msg in &args.message {
-        config.context.push(Message {
-            role: "user".to_string(),
-            content: msg.clone(),
-        });
-    }
-
-    if args.secret.is_none() && args.key.is_none() {
-        if let Ok(api_key) = std::env::var("LLM_API_KEY") {
-            if !api_key.is_empty() {
-                config.api_key = api_key;
-            }
-        }
-    }
-
-    extract_system_messages(&mut config);
-
-    config
-}
-
-fn extract_system_messages(config: &mut RuntimeConfig) {
-    let mut system_messages = Vec::new();
-    config.context.retain(|message| {
-        if message.role.eq_ignore_ascii_case("system") {
-            system_messages.push(message.content.clone());
-            false
-        } else {
-            true
-        }
-    });
-
-    if system_messages.is_empty() {
-        return;
-    }
-
-    let joined = system_messages.join("\n");
-    config.system = Some(match config.system.take() {
-        Some(existing) if !existing.is_empty() => format!("{}\n{}", existing, joined),
-        _ => joined,
-    });
-}
-
-pub fn validate_config(config: &RuntimeConfig) -> Result<(), LlmProbeError> {
-    validate_config_with_list(config, false)
-}
-
-pub fn validate_config_with_list(
-    config: &RuntimeConfig,
-    is_list_mode: bool,
-) -> Result<(), LlmProbeError> {
-    if config.provider.is_empty() {
-        return Err(LlmProbeError::MissingRequiredField("provider".to_string()));
-    }
-    if config.api_key.is_empty() {
-        return Err(LlmProbeError::MissingRequiredField("api_key".to_string()));
-    }
-    // Model is not required when listing models
-    if !is_list_mode && config.model.is_empty() {
-        return Err(LlmProbeError::MissingRequiredField("model".to_string()));
-    }
-
-    Ok(())
+    serde_json::from_value(value)
+        .map_err(|e| LlmProbeError::ConfigError(format!("Invalid v2 config schema: {e}")))
 }
 
 pub fn search_config_file() -> Option<std::path::PathBuf> {
@@ -165,91 +68,206 @@ pub fn search_config_file() -> Option<std::path::PathBuf> {
     None
 }
 
+fn parse_config_value(path: &Path, content: &str) -> Result<Value, LlmProbeError> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    match ext.to_lowercase().as_str() {
+        "yaml" | "yml" => {
+            serde_yaml::from_str::<Value>(content).map_err(|_| LlmProbeError::ConfigFormatError)
+        }
+        "json" => {
+            serde_json::from_str::<Value>(content).map_err(|_| LlmProbeError::ConfigFormatError)
+        }
+        _ => Err(LlmProbeError::ConfigFormatError),
+    }
+}
+
+fn validate_top_level_schema(value: &Value) -> Result<(), LlmProbeError> {
+    let Some(map) = value.as_object() else {
+        return Err(LlmProbeError::ConfigError(
+            "Invalid v2 config schema: top-level YAML/JSON value must be an object".to_string(),
+        ));
+    };
+
+    validate_version_field(map)?;
+
+    if is_v2_config_value(map) {
+        return Ok(());
+    }
+
+    if looks_like_legacy_v1_config(map) {
+        return Err(LlmProbeError::ConfigError(
+            "Legacy v1 flat config is no longer supported. Rewrite it to the v2 schema using defaults/profiles/active_profile, or run `llmctl --init` to generate a fresh template.".to_string(),
+        ));
+    }
+
+    Err(LlmProbeError::ConfigError(
+        "Invalid v2 config schema: expected at least one of version/defaults/profiles/active_profile".to_string(),
+    ))
+}
+
+fn validate_version_field(map: &serde_json::Map<String, Value>) -> Result<(), LlmProbeError> {
+    let Some(version) = map.get("version") else {
+        return Ok(());
+    };
+
+    let Some(version_number) = version.as_u64() else {
+        return Err(LlmProbeError::ConfigError(
+            "Invalid v2 config schema: version must be the integer 2".to_string(),
+        ));
+    };
+
+    if version_number != 2 {
+        return Err(LlmProbeError::ConfigError(format!(
+            "Unsupported config version: {version_number}. Only version 2 is supported."
+        )));
+    }
+
+    Ok(())
+}
+
+fn is_v2_config_value(map: &serde_json::Map<String, Value>) -> bool {
+    V2_MARKERS.iter().any(|key| map.contains_key(*key))
+}
+
+fn looks_like_legacy_v1_config(map: &serde_json::Map<String, Value>) -> bool {
+    LEGACY_V1_KEYS.iter().any(|key| map.contains_key(*key))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn args() -> Args {
-        Args {
-            config: None,
-            model: None,
-            list: false,
-            list_presets: false,
-            message: Vec::new(),
-            provider: None,
-            profile: None,
-            url: None,
-            secret: None,
-            key: None,
-            stream: false,
-            no_stream: false,
-            version: false,
-            init: None,
-            init_path: None,
-            convert: None,
-            endpoint: None,
-            reasoning: None,
-            dry_run: false,
-            doctor_config: false,
-            legacy_runtime: false,
-            allow_sdk_default_api: false,
-        }
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_path(ext: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock drift")
+            .as_nanos();
+        let seq = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        std::env::temp_dir().join(format!("llmctl_loader_test_{pid}_{stamp}_{seq}.{ext}"))
     }
 
     #[test]
-    fn merge_preserves_file_provider_when_cli_provider_is_absent() {
-        let file_config = FileConfig {
-            provider: Some("anthropic".to_string()),
-            base_url: Some("https://api.anthropic.com".to_string()),
-            api_key: Some("key".to_string()),
-            model: Some("claude".to_string()),
-            ..FileConfig::default()
-        };
+    fn loads_v2_yaml_config() {
+        let path = temp_path("yaml");
+        fs::write(
+            &path,
+            r#"
+version: 2
+active_profile: openai_main
+profiles:
+  openai_main:
+    adapter: openai
+    model: gpt-5
+"#,
+        )
+        .expect("write yaml");
 
-        let config = merge_configs(Some(file_config), &args());
+        let config = load_app_config(&path).expect("yaml should load");
+        assert_eq!(config.version, Some(2));
+        assert_eq!(config.active_profile.as_deref(), Some("openai_main"));
+        assert_eq!(
+            config
+                .profiles
+                .get("openai_main")
+                .and_then(|profile| profile.model.as_deref()),
+            Some("gpt-5")
+        );
 
-        assert_eq!(config.provider, "anthropic");
+        let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn merge_uses_default_provider_when_no_provider_is_configured() {
-        let config = merge_configs(None, &args());
+    fn loads_v2_json_config() {
+        let path = temp_path("json");
+        fs::write(
+            &path,
+            r#"{
+  "version": 2,
+  "defaults": {
+    "stream": true
+  },
+  "profiles": {
+    "openai_main": {
+      "adapter": "openai",
+      "model": "gpt-4o"
+    }
+  }
+}"#,
+        )
+        .expect("write json");
 
-        assert_eq!(config.provider, "openai-compatible");
+        let config = load_app_config(&path).expect("json should load");
+        assert_eq!(config.version, Some(2));
+        assert_eq!(config.defaults.stream, Some(true));
+        assert_eq!(config.profiles.len(), 1);
+
+        let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn merge_moves_system_context_messages_to_system_prompt() {
-        let file_config = FileConfig {
-            provider: Some("openai".to_string()),
-            context: Some(vec![
-                Message {
-                    role: "system".to_string(),
-                    content: "be concise".to_string(),
-                },
-                Message {
-                    role: "user".to_string(),
-                    content: "hello".to_string(),
-                },
-            ]),
-            system: Some("base system".to_string()),
-            ..FileConfig::default()
-        };
+    fn accepts_context_only_v2_config() {
+        let path = temp_path("yaml");
+        fs::write(
+            &path,
+            r#"
+context:
+  - role: system
+    content: You are concise.
+"#,
+        )
+        .expect("write yaml");
 
-        let config = merge_configs(Some(file_config), &args());
-
-        assert_eq!(config.system.as_deref(), Some("base system\nbe concise"));
+        let config = load_app_config(&path).expect("context-only config should load");
         assert_eq!(config.context.len(), 1);
-        assert_eq!(config.context[0].role, "user");
+        assert_eq!(config.context[0].role, "system");
+
+        let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn validate_allows_empty_base_url() {
-        let mut config = RuntimeConfig::new();
-        config.provider = "openai".to_string();
-        config.api_key = "key".to_string();
-        config.model = "gpt".to_string();
+    fn rejects_legacy_v1_flat_config() {
+        let path = temp_path("yaml");
+        fs::write(
+            &path,
+            r#"
+provider: dashscope
+base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/
+model: qwen-plus
+"#,
+        )
+        .expect("write legacy yaml");
 
-        assert!(validate_config(&config).is_ok());
+        let err = load_app_config(&path).expect_err("legacy config should be rejected");
+        assert!(err
+            .to_string()
+            .contains("Legacy v1 flat config is no longer supported"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_unsupported_version() {
+        let path = temp_path("yaml");
+        fs::write(
+            &path,
+            r#"
+version: 1
+profiles:
+  openai_main:
+    adapter: openai
+"#,
+        )
+        .expect("write yaml");
+
+        let err = load_app_config(&path).expect_err("version 1 should be rejected");
+        assert!(err.to_string().contains("Only version 2 is supported"));
+
+        let _ = fs::remove_file(path);
     }
 }

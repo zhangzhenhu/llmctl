@@ -2,14 +2,22 @@
 
 A CLI tool for testing and validating LLM (Large Language Model) services. Supports multiple providers including OpenAI, Gemini, Claude, Ollama, DeepSeek, and any OpenAI-compatible APIs.
 
+## What's New in v2.1.0
+
+- Unified CLI/config naming around `adapter`, `profile`, `base_url`, and `api_mode`
+- Added `--list-adapters` plus richer built-in adapter defaults and aliases
+- Added explicit proxy control with `--no-proxy`, `defaults.no_proxy`, and `profiles.<name>.no_proxy`
+- Simplified the runtime to the current genai-based path and updated the docs accordingly
+
 ## Features
 
-- **Multiple Provider Support**: OpenAI, Gemini (Google), Anthropic (Claude), Ollama, DeepSeek, XAI, Groq, Mistral and more
+- **Multiple Provider Support**: OpenAI, Gemini (Google), Anthropic (Claude), Ollama, DeepSeek, XAI, Groq, Cohere and more
 - **OpenAI-Compatible API**: Works with any service that implements the OpenAI API format (Aliyun, DashScope, local deployments, etc.)
 - **Model Listing**: List all available models from your provider
 - **Streaming Responses**: Real-time streaming output for chat responses
 - **Thinking/Reasoning Support**: Uses genai-native reasoning capture with vendored `extra_body` passthrough for provider-specific controls such as Aliyun `enable_thinking`
 - **Flexible Configuration**: Configure via YAML/JSON files or command-line arguments
+- **Proxy Control**: Default behavior is `inherit reqwest/system proxy settings`; you can disable proxies per config profile or per run with `--no-proxy`
 
 ## Installation
 
@@ -86,12 +94,15 @@ llmctl --init json
 ```yaml
 # llm.yaml
 version: 2
-active_provider: openai_main
-providers:
+active_profile: openai_main
+defaults:
+  no_proxy: false
+profiles:
   openai_main:
     adapter: openai
     model: gpt-4o
     api_key_env: OPENAI_API_KEY
+    # no_proxy: true
 context:
   - role: system
     content: You are a helpful assistant.
@@ -111,29 +122,39 @@ llmctl -c llm.yaml
 llmctl [OPTIONS]
 
 Options:
-  -c, --config <PATH>          Config file path (YAML or JSON)
+  -c, --config <PATH>          Config file path (v2 YAML or JSON)
   -m, --model <STRING>         Model name
   -l, --list                   List available models
-      --list-presets           List built-in provider presets and exit
+      --list-adapters          List supported adapters, aliases, and built-in defaults
       --message <STRING>       Append user message (repeatable)
-  -p, --provider <STRING>      Provider adapter or alias
-  -P, --profile <NAME>         Provider profile name from config (v2)
-  -u, --url <STRING>           API base URL
+  -p, --adapter <STRING>       Adapter name or alias
+  -P, --profile <NAME>         Profile name from config (v2)
+  -u, --base-url <STRING>      API base URL
   -s, --secret <STRING>        API key
   -k, --key <STRING>           API key alias for --secret
       --stream                 Enable streaming response
       --no-stream              Disable streaming response for this run
+      --no-proxy               Disable all proxies for llmctl-managed HTTP clients
   -v, --version                Show version information
   -i, --init <FORMAT>          Initialize config file: yaml/json
       --init-path <PATH>       Custom config file path
-  -t, --convert <INPUT>        Convert config format
-      --endpoint <MODE>        OpenAI API mode: auto|responses|chat-completions
+  -t, --convert <INPUT>        Convert v2 config between YAML and JSON
+      --api-mode <MODE>        API mode: auto|responses|chat-completions
       --reasoning <MODE>       Unified reasoning: off|auto|low|medium|high|xhigh|max|budget:<n>
       --dry-run                Print resolved execution plan without request
       --doctor-config          Validate config and print diagnostics
-      --legacy-runtime         Use the legacy llm runtime explicitly
-      --allow-sdk-default-api  Allow OpenAI endpoint fallback to SDK default
 ```
+
+Proxy resolution is unified as:
+
+- CLI `--no-proxy`
+- `profiles.<name>.no_proxy`
+- `defaults.no_proxy`
+- otherwise inherit reqwest/system proxy settings
+
+On macOS this inherited mode can still use the system proxy even when shell `*_proxy` environment variables are unset. Use `--no-proxy` or set `no_proxy: true` in config to force direct connections for llmctl-managed HTTP clients.
+
+The current runtime architecture is documented in [docs/当前架构.md](docs/当前架构.md). Older design and stabilization docs in `docs/` are kept as migration history.
 
 ## Automated Tests
 
@@ -159,27 +180,27 @@ cargo test --test cli_dry_run_cases -- --nocapture
 #### Quick Start Without Config File
 
 ```bash
-# Show all built-in presets
-llmctl --list-presets
+# Show supported adapters and aliases
+llmctl --list-adapters
 
 # OpenAI quick start (reads OPENAI_API_KEY)
-llmctl --provider openai --message "hello"
+llmctl --adapter openai --message "hello"
 
 # Aliyun quick start (reads ALIYUN_API_KEY)
-llmctl --provider aliyun --message "你好"
+llmctl --adapter aliyun --message "你好"
 
 # Alias mode also works:
-llmctl --provider dashscope --message "你好"
+llmctl --adapter ds --message "你好"
 ```
 
 #### Select Config Profile (v2)
 
 ```bash
-# Use providers.anthropic_main from config
+# Use profiles.anthropic_main from config
 llmctl -c llm.yaml -P anthropic_main --message "hello"
 
-# Keep profile, but temporarily override adapter/preset
-llmctl -c llm.yaml -P openai_main --provider dashscope --message "你好"
+# Keep the profile, but override the adapter identity for one run
+llmctl -c llm.yaml -P openai_main --adapter aliyun --message "你好"
 ```
 
 #### List Available Models
@@ -187,6 +208,8 @@ llmctl -c llm.yaml -P openai_main --provider dashscope --message "你好"
 ```bash
 llmctl -c llm.yaml -l
 ```
+
+`--list` now prints the source of the returned catalog, so you can distinguish a live provider `/models` result from a static fallback.
 
 #### Chat with a Specific Model
 
@@ -208,10 +231,10 @@ llmctl -c llm.yaml --no-stream
 
 ```bash
 # Force higher reasoning effort when supported
-llmctl --provider openai --model gpt-5 --reasoning high --message "hello"
+llmctl --adapter openai --model gpt-5 --reasoning high --message "hello"
 
 # Budget style reasoning
-llmctl --provider gemini --reasoning budget:8000 --message "hello"
+llmctl --adapter gemini --reasoning budget:8000 --message "hello"
 ```
 
 #### Use with Environment Variable for API Key
@@ -221,33 +244,38 @@ export LLM_API_KEY="your-api-key"
 llmctl -c llm.yaml
 ```
 
-### Supported Providers
+### Supported Adapters
 
-| Provider | Value | Notes |
-|----------|-------|-------|
-| OpenAI | `openai` | |
-| Google Gemini | `gemini` or `google` | |
-| Anthropic Claude | `anthropic` or `claude` | |
-| Ollama | `ollama` | Local deployment |
-| DeepSeek | `deepseek` | |
-| XAI | `xai` | |
-| Groq | `groq` | |
-| Mistral | `mistral` | |
-| OpenAI-Compatible | `openai-compatible`, `aliyun`, `dashscope` | Custom endpoints |
+| Adapter | Common aliases | Notes |
+|---------|----------------|-------|
+| `openai` | `oi`, `oai` | OpenAI-compatible protocol family |
+| `aliyun` | `ali`, `dashscope`, `ds` | DashScope / Aliyun |
+| `anthropic` | `claude`, `anth` | |
+| `gemini` | `google`, `gmi` | |
+| `ollama` | `ol` | Local deployment |
+| `deepseek` | `dsk` | |
+| `xai` | `grok` | |
+| `groq` | `gq` | |
+| `cohere` | `co` | |
+| `fireworks` | `fw` | |
+| `together` | `tg` | |
+| `zai` | `zhipu`, `zhi` | Z.ai / Zhipu |
 
 ## Configuration Reference
 
 ### YAML Format
 
+`v2` is the current config schema version for `llmctl`.
+
 ```yaml
 version: 2
-active_provider: openai_main
+active_profile: openai_main
 defaults:
   stream: true
   timeout_seconds: 60
-  openai_api: auto
+  api_mode: auto
   reasoning: auto
-providers:
+profiles:
   openai_main:
     adapter: openai
     model: gpt-4o
@@ -268,7 +296,7 @@ Use unified `reasoning`:
 ```yaml
 defaults:
   reasoning: auto
-providers:
+profiles:
   openai_main:
     reasoning: high
   gemini_main:
@@ -282,9 +310,10 @@ Allowed values:
 - `low|medium|high|xhigh|max`
 - `budget:<n>` (numeric budget for providers that support budget mapping)
 
-Backward compatibility:
+Config notes:
 
-- `reasoning_effort` is still accepted as a legacy alias in provider profiles.
+- Only the v2 config schema is supported.
+- `reasoning_effort` is still accepted as a deprecated alias inside v2 profiles.
 
 ## Error Handling
 

@@ -2,6 +2,7 @@ use crate::adapter::adapters::support::{StreamerCapturedData, StreamerOptions};
 use crate::adapter::anthropic::parse_cache_creation_details;
 use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
 use crate::chat::{ChatOptionsSet, PromptTokensDetails, StopReason, ToolCall, Usage};
+use crate::error::format_error_chain;
 use crate::webc::{Event, EventSourceStream};
 use crate::{Error, ModelIden, Result};
 use serde_json::{Map, Value};
@@ -243,10 +244,11 @@ impl futures::Stream for AnthropicStreamer {
 					}
 				}
 				Some(Err(err)) => {
-					tracing::error!("Error: {}", err);
+					let cause = format_error_chain(err.as_ref());
+					tracing::error!("Error: {}", cause);
 					return Poll::Ready(Some(Err(Error::WebStream {
 						model_iden: self.options.model_iden.clone(),
-						cause: err.to_string(),
+						cause,
 						error: err,
 					})));
 				}

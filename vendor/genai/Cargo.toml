@@ -275,6 +275,7 @@ features = [
     "json",
     "stream",
     "gzip",
+    "socks",
 ]
 
 [dependencies.serde]
