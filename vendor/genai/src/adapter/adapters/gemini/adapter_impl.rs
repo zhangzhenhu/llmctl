@@ -1,13 +1,13 @@
+use crate::adapter::adapters::gemini::GeminiStreamer;
 use crate::adapter::adapters::support::get_api_key;
-use crate::adapter::gemini::GeminiStreamer;
 use crate::adapter::{Adapter, AdapterKind, ServiceType, WebRequestData};
 use crate::chat::{
 	Binary, BinarySource, ChatOptionsSet, ChatRequest, ChatResponse, ChatResponseFormat, ChatRole, ChatStream,
 	ChatStreamResponse, CompletionTokensDetails, ContentPart, MessageContent, PromptTokensDetails, ReasoningEffort,
-	StopReason, Tool, ToolCall, ToolConfig, ToolName, Usage,
+	StopReason, Tool, ToolCall, ToolChoice, ToolConfig, ToolName, ToolResponse, Usage,
 };
 use crate::resolver::{AuthData, Endpoint};
-use crate::webc::{WebResponse, WebStream};
+use crate::webc::{EventSourceStream, WebResponse};
 use crate::{Error, Headers, ModelIden, Result, ServiceTarget};
 use reqwest::RequestBuilder;
 use serde_json::{Value, json};
@@ -40,6 +40,23 @@ fn insert_gemini_thinking_budget_value(payload: &mut Value, effort: &ReasoningEf
 	Ok(())
 }
 
+fn gemini_tool_config(tool_choice: Option<&ToolChoice>) -> Option<Value> {
+	let tool_choice = tool_choice?;
+	let mut config = json!({
+		"functionCallingConfig": {
+			"mode": match tool_choice {
+				ToolChoice::Auto => "AUTO",
+				ToolChoice::None => "NONE",
+				ToolChoice::Required | ToolChoice::Tool { .. } => "ANY",
+			}
+		}
+	});
+	if let Some(name) = tool_choice.tool_name() {
+		config["functionCallingConfig"]["allowedFunctionNames"] = json!([name]);
+	}
+	Some(config)
+}
+
 // curl \
 //   -H 'Content-Type: application/json' \
 //   -d '{"contents":[{"parts":[{"text":"Explain how AI works"}]}]}' \
@@ -52,12 +69,12 @@ impl GeminiAdapter {
 impl Adapter for GeminiAdapter {
 	const DEFAULT_API_KEY_ENV_NAME: Option<&'static str> = Some(Self::API_KEY_DEFAULT_ENV_NAME);
 
-	fn default_endpoint() -> Endpoint {
+	fn default_endpoint(_kind: AdapterKind) -> Endpoint {
 		const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/";
 		Endpoint::from_static(BASE_URL)
 	}
 
-	fn default_auth() -> AuthData {
+	fn default_auth(_kind: AdapterKind) -> AuthData {
 		match Self::DEFAULT_API_KEY_ENV_NAME {
 			Some(env_name) => AuthData::from_env(env_name),
 			None => AuthData::None,
@@ -104,7 +121,7 @@ impl Adapter for GeminiAdapter {
 		let (_, model_name) = model.model_name.namespace_and_name();
 		let url = match service_type {
 			ServiceType::Chat => format!("{base_url}models/{model_name}:generateContent"),
-			ServiceType::ChatStream => format!("{base_url}models/{model_name}:streamGenerateContent"),
+			ServiceType::ChatStream => format!("{base_url}models/{model_name}:streamGenerateContent?alt=sse"),
 			ServiceType::Embed => format!("{base_url}models/{model_name}:embedContent"), // Gemini embeddings API
 		};
 		Ok(url)
@@ -220,9 +237,9 @@ impl Adapter for GeminiAdapter {
 		reqwest_builder: RequestBuilder,
 		options_set: ChatOptionsSet<'_, '_>,
 	) -> Result<ChatStreamResponse> {
-		let web_stream = WebStream::new_with_pretty_json_array(reqwest_builder);
+		let event_source = EventSourceStream::new(reqwest_builder);
 
-		let gemini_stream = GeminiStreamer::new(web_stream, model_iden.clone(), options_set);
+		let gemini_stream = GeminiStreamer::new(event_source, model_iden.clone(), options_set);
 		let chat_stream = ChatStream::from_inter_stream(gemini_stream);
 
 		Ok(ChatStreamResponse {
@@ -322,7 +339,7 @@ impl GeminiAdapter {
 				let fn_name: String = fc.x_get("name").unwrap_or_default();
 				// Gemini omits call_id; synthesize a unique one to avoid
 				// collisions when the same tool is called multiple times.
-				let call_id = format!("call#{}#{}", fn_name, tool_call_counter);
+				let call_id: String = fc.x_get("id").unwrap_or(format!("call#{}#{}", fn_name, tool_call_counter));
 				tool_call_counter += 1;
 				content.push(GeminiChatContent::ToolCall(ToolCall {
 					call_id,
@@ -405,19 +422,19 @@ impl GeminiAdapter {
 
 		// -- Set the reasoning effort
 		if let Some(computed_reasoning_effort) = computed_reasoning_effort {
-			// -- For gemini-3 use the thinkingLevel if Low or High (does not support medium for now)
-			if provider_model_name.contains("gemini-3") {
-				match computed_reasoning_effort {
-					ReasoningEffort::Low | ReasoningEffort::Minimal => {
-						payload.x_insert("/generationConfig/thinkingConfig/thinkingLevel", "LOW")?;
-					}
-					ReasoningEffort::High | ReasoningEffort::Max => {
-						payload.x_insert("/generationConfig/thinkingConfig/thinkingLevel", "HIGH")?;
-					}
-					// Fallback on thinkingBudget
-					other => {
-						insert_gemini_thinking_budget_value(&mut payload, &other)?;
-					}
+			// -- For gemini-3, gemma-4 use the thinkingLevel
+			let models = ["gemini-3", "gemma-4"];
+			if models.iter().any(|m| provider_model_name.contains(m)) {
+				let thinking_level = match computed_reasoning_effort {
+					ReasoningEffort::None => None,
+					ReasoningEffort::Budget(_) => None,
+					ReasoningEffort::Minimal => Some("MINIMAL"),
+					ReasoningEffort::Low => Some("LOW"),
+					ReasoningEffort::Medium => Some("MEDIUM"),
+					ReasoningEffort::High | ReasoningEffort::Max | ReasoningEffort::XHigh => Some("HIGH"),
+				};
+				if let Some(thinking_level) = thinking_level {
+					payload.x_insert("/generationConfig/thinkingConfig/thinkingLevel", thinking_level)?;
 				}
 			}
 			// -- Otherwise, Do thinking budget
@@ -443,6 +460,9 @@ impl GeminiAdapter {
 		// -- Tools
 		if let Some(tools) = tools {
 			payload.x_insert("tools", tools)?;
+		}
+		if let Some(tool_config) = gemini_tool_config(options_set.tool_choice()) {
+			payload.x_insert("toolConfig", tool_config)?;
 		}
 
 		// -- Response Format
@@ -600,11 +620,12 @@ impl GeminiAdapter {
 								}));
 							}
 							ContentPart::ToolResponse(tool_response) => {
+								let fn_name = gemini_function_response_name(&tool_response);
 								parts_values.push(json!({
 									"functionResponse": {
-										"name": tool_response.call_id,
+										"name": &fn_name,
 										"response": {
-											"name": tool_response.call_id,
+											"name": &fn_name,
 											"content": tool_response.content,
 										}
 									}
@@ -711,11 +732,12 @@ impl GeminiAdapter {
 								}));
 							}
 							ContentPart::ToolResponse(tool_response) => {
+								let fn_name = gemini_function_response_name(&tool_response);
 								parts_values.push(json!({
 									"functionResponse": {
-										"name": tool_response.call_id,
+										"name": &fn_name,
 										"response": {
-											"name": tool_response.call_id,
+											"name": &fn_name,
 											"content": tool_response.content,
 										}
 									}
@@ -904,11 +926,29 @@ fn take_bool(v: &mut Value, key: &str) -> bool {
 		.unwrap_or(false)
 }
 
+fn gemini_function_response_name(tool_response: &ToolResponse) -> String {
+	tool_response
+		.fn_name
+		.clone()
+		.or_else(|| infer_gemini_synthetic_call_fn_name(&tool_response.call_id))
+		.unwrap_or_else(|| tool_response.call_id.clone())
+}
+
+fn infer_gemini_synthetic_call_fn_name(call_id: &str) -> Option<String> {
+	let rest = call_id.strip_prefix("call#")?;
+	let (name, counter) = rest.rsplit_once('#')?;
+	if name.is_empty() || counter.parse::<usize>().is_err() {
+		return None;
+	}
+	Some(name.to_string())
+}
+
 // endregion: --- Helpers
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::chat::{ChatMessage, ChatOptions};
 
 	#[test]
 	fn merge_consecutive_tool_responses() {
@@ -944,6 +984,69 @@ mod tests {
 		assert_eq!(merged.len(), 1);
 		let parts = merged[0].get("parts").unwrap().as_array().unwrap();
 		assert_eq!(parts.len(), 3);
+	}
+
+	#[test]
+	fn function_response_uses_function_name_when_available() {
+		let model_iden = ModelIden::new(AdapterKind::Gemini, "gemini-2.5-flash");
+		let chat_req = ChatRequest::new(vec![ChatMessage::from(
+			ToolResponse::new("call_123", "{}").with_fn_name("get_weather"),
+		)]);
+
+		let parts = GeminiAdapter::into_gemini_request_parts(&model_iden, chat_req).unwrap();
+		let function_response = &parts.contents[0]["parts"][0]["functionResponse"];
+
+		assert_eq!(function_response["name"], "get_weather");
+		assert_eq!(function_response["response"]["name"], "get_weather");
+	}
+
+	#[test]
+	fn function_response_infers_name_from_gemini_synthetic_call_id() {
+		let model_iden = ModelIden::new(AdapterKind::Gemini, "gemini-2.5-flash");
+		let chat_req = ChatRequest::new(vec![ChatMessage::from(ToolResponse::new("call#get_weather#0", "{}"))]);
+
+		let parts = GeminiAdapter::into_gemini_request_parts(&model_iden, chat_req).unwrap();
+		let function_response = &parts.contents[0]["parts"][0]["functionResponse"];
+
+		assert_eq!(function_response["name"], "get_weather");
+		assert_eq!(function_response["response"]["name"], "get_weather");
+	}
+
+	#[test]
+	fn tool_choice_required_maps_to_gemini_any_mode() {
+		let model_iden = ModelIden::new(AdapterKind::Gemini, "gemini-2.5-flash");
+		let options = ChatOptions::default().with_tool_choice(ToolChoice::Required);
+		let options_set = ChatOptionsSet::default().with_chat_options(Some(&options));
+		let chat_req = ChatRequest::from_user("Use the weather tool.").with_tools(vec![Tool::new("get_weather")]);
+
+		let (payload, _) =
+			GeminiAdapter::build_gemini_request_payload(&model_iden, "gemini-2.5-flash", chat_req, options_set)
+				.unwrap();
+
+		assert_eq!(payload["toolConfig"]["functionCallingConfig"]["mode"], "ANY");
+		assert!(
+			payload["toolConfig"]["functionCallingConfig"]
+				.get("allowedFunctionNames")
+				.is_none()
+		);
+	}
+
+	#[test]
+	fn tool_choice_specific_tool_sets_gemini_allowed_function() {
+		let model_iden = ModelIden::new(AdapterKind::Gemini, "gemini-2.5-flash");
+		let options = ChatOptions::default().with_tool_choice(ToolChoice::tool("get_weather"));
+		let options_set = ChatOptionsSet::default().with_chat_options(Some(&options));
+		let chat_req = ChatRequest::from_user("Use the weather tool.").with_tools(vec![Tool::new("get_weather")]);
+
+		let (payload, _) =
+			GeminiAdapter::build_gemini_request_payload(&model_iden, "gemini-2.5-flash", chat_req, options_set)
+				.unwrap();
+
+		assert_eq!(payload["toolConfig"]["functionCallingConfig"]["mode"], "ANY");
+		assert_eq!(
+			payload["toolConfig"]["functionCallingConfig"]["allowedFunctionNames"],
+			json!(["get_weather"])
+		);
 	}
 
 	#[test]

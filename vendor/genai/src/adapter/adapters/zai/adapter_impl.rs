@@ -1,5 +1,5 @@
 use crate::ModelIden;
-use crate::adapter::openai::OpenAIAdapter;
+use crate::adapter::adapters::openai::OpenAIAdapter;
 use crate::adapter::{Adapter, AdapterKind, ServiceType, WebRequestData};
 use crate::chat::{ChatOptionsSet, ChatRequest, ChatResponse, ChatStreamResponse};
 use crate::resolver::{AuthData, Endpoint};
@@ -7,7 +7,7 @@ use crate::webc::WebResponse;
 use crate::{Result, ServiceTarget};
 use reqwest::RequestBuilder;
 
-pub const ZAI_CODING_NAMESPACE: &str = "zai-coding";
+pub const ZAI_CODING_NAMESPACE: &str = "zai_coding";
 
 /// Helper structure to hold ZAI model parsing information
 struct ZaiModelEndpoint {
@@ -19,10 +19,10 @@ impl ZaiModelEndpoint {
 	fn from_model(model: &ModelIden) -> Self {
 		let (namespace, _) = model.model_name.namespace_and_name();
 
-		// Check if namespace is "zai" to route to coding endpoint
+		// Check if namespace is "zai_coding" to route to coding endpoint
 		let endpoint = match namespace {
 			Some(ZAI_CODING_NAMESPACE) => Endpoint::from_static("https://api.z.ai/api/coding/paas/v4/"),
-			_ => ZaiAdapter::default_endpoint(),
+			_ => ZaiAdapter::default_endpoint(AdapterKind::Zai),
 		};
 
 		Self { endpoint }
@@ -32,10 +32,10 @@ impl ZaiModelEndpoint {
 /// The ZAI API is mostly compatible with the OpenAI API.
 ///
 /// NOTE: This adapter will automatically route to the coding endpoint
-///       when the model name starts with "zai::".
+///       when the model name starts with "zai_coding::".
 ///
 /// For example, `glm-4.6` uses the regular API endpoint,
-/// while `zai::glm-4.6` uses the coding plan endpoint.
+/// while `zai_coding::glm-4.6` uses the coding plan endpoint.
 ///
 pub struct ZaiAdapter;
 
@@ -74,12 +74,12 @@ impl ZaiAdapter {
 impl Adapter for ZaiAdapter {
 	const DEFAULT_API_KEY_ENV_NAME: Option<&'static str> = Some(Self::API_KEY_DEFAULT_ENV_NAME);
 
-	fn default_endpoint() -> Endpoint {
+	fn default_endpoint(_kind: AdapterKind) -> Endpoint {
 		const BASE_URL: &str = "https://api.z.ai/api/paas/v4/";
 		Endpoint::from_static(BASE_URL)
 	}
 
-	fn default_auth() -> AuthData {
+	fn default_auth(_kind: AdapterKind) -> AuthData {
 		match Self::DEFAULT_API_KEY_ENV_NAME {
 			Some(env_name) => AuthData::from_env(env_name),
 			None => AuthData::None,

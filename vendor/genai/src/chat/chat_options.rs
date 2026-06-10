@@ -8,6 +8,7 @@
 use crate::Headers;
 use crate::chat::CacheControl;
 use crate::chat::chat_req_response_format::ChatResponseFormat;
+use crate::chat::chat_req_tool_choice::ToolChoice;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -52,6 +53,9 @@ pub struct ChatOptions {
 	/// Note: Additional formats may be added in the future.
 	pub response_format: Option<ChatResponseFormat>,
 
+	/// Tool selection preference, when the provider supports function/tool calling.
+	pub tool_choice: Option<ToolChoice>,
+
 	// -- Reasoning options
 	/// Extract -style reasoning blocks into `ChatResponse.reasoning_content` when present.
 	pub normalize_reasoning_content: Option<bool>,
@@ -78,12 +82,10 @@ pub struct ChatOptions {
 	/// OpenAI prompt cache key.
 	pub prompt_cache_key: Option<String>,
 
-	/// Provider-specific extra request payload merged at adapter level.
+	/// Provider-specific extra request payload merged by the adapter.
 	///
 	/// This is primarily useful for OpenAI-compatible providers that expose
-	/// non-standard request fields (for example, reasoning toggles).
-	/// llmctl patch: keep this until upstream genai exposes equivalent
-	/// request-body passthrough for OpenAI-compatible adapters.
+	/// non-standard request fields.
 	pub extra_body: Option<Value>,
 }
 
@@ -161,6 +163,12 @@ impl ChatOptions {
 		self
 	}
 
+	/// Sets the tool selection preference.
+	pub fn with_tool_choice(mut self, tool_choice: ToolChoice) -> Self {
+		self.tool_choice = Some(tool_choice);
+		self
+	}
+
 	/// Sets the reasoning effort hint.
 	pub fn with_reasoning_effort(mut self, value: ReasoningEffort) -> Self {
 		self.reasoning_effort = Some(value);
@@ -204,9 +212,6 @@ impl ChatOptions {
 	}
 
 	/// Sets provider-specific extra body fields.
-	///
-	/// llmctl patch: used by OpenAI-compatible providers for request fields
-	/// that genai does not model directly yet.
 	pub fn with_extra_body(mut self, value: Value) -> Self {
 		self.extra_body = Some(value);
 		self
@@ -554,6 +559,12 @@ impl ChatOptionsSet<'_, '_> {
 			.or_else(|| self.client.and_then(|client| client.response_format.as_ref()))
 	}
 
+	pub fn tool_choice(&self) -> Option<&ToolChoice> {
+		self.chat
+			.and_then(|chat| chat.tool_choice.as_ref())
+			.or_else(|| self.client.and_then(|client| client.tool_choice.as_ref()))
+	}
+
 	pub fn normalize_reasoning_content(&self) -> Option<bool> {
 		self.chat
 			.and_then(|chat| chat.normalize_reasoning_content)
@@ -597,16 +608,16 @@ impl ChatOptionsSet<'_, '_> {
 			.or_else(|| self.client.and_then(|client| client.prompt_cache_key.as_deref()))
 	}
 
-	pub fn cache_control(&self) -> Option<&CacheControl> {
-		self.chat
-			.and_then(|chat| chat.cache_control.as_ref())
-			.or_else(|| self.client.and_then(|client| client.cache_control.as_ref()))
-	}
-
 	pub fn extra_body(&self) -> Option<&Value> {
 		self.chat
 			.and_then(|chat| chat.extra_body.as_ref())
 			.or_else(|| self.client.and_then(|client| client.extra_body.as_ref()))
+	}
+
+	pub fn cache_control(&self) -> Option<&CacheControl> {
+		self.chat
+			.and_then(|chat| chat.cache_control.as_ref())
+			.or_else(|| self.client.and_then(|client| client.cache_control.as_ref()))
 	}
 
 	/// Returns true only if there is a ChatResponseFormat::JsonMode

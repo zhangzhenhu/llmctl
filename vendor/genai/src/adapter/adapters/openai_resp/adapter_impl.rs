@@ -1,11 +1,11 @@
+use super::{OpenAIRespStreamer, RespResponse};
+use crate::adapter::adapters::openai::OpenAIAdapter;
 use crate::adapter::adapters::support::get_api_key;
-use crate::adapter::openai::OpenAIAdapter;
-use crate::adapter::openai_resp::OpenAIRespStreamer;
-use crate::adapter::openai_resp::resp_types::RespResponse;
 use crate::adapter::{Adapter, AdapterDispatcher, AdapterKind, ServiceType, WebRequestData};
 use crate::chat::{
 	CacheControl, ChatOptionsSet, ChatRequest, ChatResponse, ChatResponseFormat, ChatRole, ChatStream,
-	ChatStreamResponse, ContentPart, MessageContent, ReasoningEffort, StopReason, Tool, ToolConfig, ToolName, Usage,
+	ChatStreamResponse, ContentPart, MessageContent, ReasoningEffort, StopReason, Tool, ToolChoice, ToolConfig,
+	ToolName, Usage,
 };
 use crate::resolver::{AuthData, Endpoint};
 use crate::webc::{EventSourceStream, WebResponse};
@@ -17,6 +17,18 @@ use value_ext::JsonValueExt;
 
 pub struct OpenAIRespAdapter;
 
+fn openai_resp_tool_choice(tool_choice: Option<&ToolChoice>) -> Option<Value> {
+	match tool_choice? {
+		ToolChoice::Auto => Some(json!("auto")),
+		ToolChoice::None => Some(json!("none")),
+		ToolChoice::Required => Some(json!("required")),
+		ToolChoice::Tool { name } => Some(json!({
+			"type": "function",
+			"name": name
+		})),
+	}
+}
+
 impl OpenAIRespAdapter {
 	pub const API_KEY_DEFAULT_ENV_NAME: &str = "OPENAI_API_KEY";
 }
@@ -24,14 +36,14 @@ impl OpenAIRespAdapter {
 impl Adapter for OpenAIRespAdapter {
 	const DEFAULT_API_KEY_ENV_NAME: Option<&'static str> = Some(Self::API_KEY_DEFAULT_ENV_NAME);
 
-	fn default_auth() -> AuthData {
+	fn default_auth(_kind: AdapterKind) -> AuthData {
 		match Self::DEFAULT_API_KEY_ENV_NAME {
 			Some(env_name) => AuthData::from_env(env_name),
 			None => AuthData::None,
 		}
 	}
 
-	fn default_endpoint() -> Endpoint {
+	fn default_endpoint(_kind: AdapterKind) -> Endpoint {
 		const BASE_URL: &str = "https://api.openai.com/v1/";
 		Endpoint::from_static(BASE_URL)
 	}
@@ -180,6 +192,9 @@ impl Adapter for OpenAIRespAdapter {
 		if let Some(tools) = tools {
 			payload.x_insert("/tools", tools)?;
 		}
+		if let Some(tool_choice) = openai_resp_tool_choice(chat_options.tool_choice()) {
+			payload.x_insert("tool_choice", tool_choice)?;
+		}
 
 		// -- Compute response format
 		let response_format = if let Some(response_format) = chat_options.response_format() {
@@ -251,8 +266,6 @@ impl Adapter for OpenAIRespAdapter {
 
 		// -- Provider-specific payload extension
 		// Merged last so callers can intentionally override previously set fields.
-		// llmctl patch: keep Responses parity with Chat Completions so
-		// OpenAI-compatible providers can use the same extra_body controls.
 		if let Some(extra_body) = chat_options.extra_body() {
 			payload.x_merge(extra_body.clone())?;
 		}
@@ -470,6 +483,39 @@ impl OpenAIRespAdapter {
 					// In the new OpenAI Responses API, the tool call are just items out of assistant message
 					let mut item_message_content: Vec<Value> = Vec::new();
 
+					// Pre-pass: encrypted reasoning blobs from prior turns must be
+					// carried back as top-level `{type: "reasoning"}` input items
+					// to keep the Responses-API prefix cache warm. Without this,
+					// even a verbatim resend of a prior turn re-processes every
+					// token. They precede the assistant message they belong to,
+					// mirroring the order the API emits them in the streaming
+					// response. The blobs ride in on `ContentPart::ThoughtSignature`
+					// parts (from `StreamEnd::captured_content`) or on
+					// `ToolCall::thought_signatures` (rust-genai's streamer stashes
+					// captured blobs there when there are tool calls).
+					for part in msg.content.iter() {
+						if let ContentPart::ThoughtSignature(blob) = part {
+							input_items.push(json!({
+								"type": "reasoning",
+								"encrypted_content": blob,
+								"summary": [],
+							}));
+						}
+					}
+					for part in msg.content.iter() {
+						if let ContentPart::ToolCall(tool_call) = part
+							&& let Some(sigs) = tool_call.thought_signatures.as_ref()
+						{
+							for blob in sigs {
+								input_items.push(json!({
+									"type": "reasoning",
+									"encrypted_content": blob,
+									"summary": [],
+								}));
+							}
+						}
+					}
+
 					for part in msg.content {
 						match part {
 							ContentPart::Text(text) => {
@@ -500,6 +546,8 @@ impl OpenAIRespAdapter {
 							// TODO: Probably need towarn on this one (probably need to add binary here)
 							ContentPart::Binary(_) => {}
 							ContentPart::ToolResponse(_) => {}
+							// ThoughtSignature and ReasoningContent are emitted as
+							// top-level `type:reasoning` items in the pre-pass above.
 							ContentPart::ThoughtSignature(_) => {}
 							ContentPart::ReasoningContent(_) => {}
 							// Custom are ignored for this logic
@@ -550,6 +598,7 @@ impl OpenAIRespAdapter {
 			schema,
 			strict,
 			config,
+			..
 		} = tool;
 
 		let name = match name {
@@ -620,7 +669,54 @@ struct OpenAIRespRequestParts {
 mod tests {
 	use super::*;
 	use crate::adapter::AdapterKind;
-	use crate::chat::ChatMessage;
+	use crate::chat::{ChatMessage, ChatOptions, Tool, ToolChoice};
+
+	#[test]
+	fn test_extra_body_merged_into_response_payload() {
+		let chat_options = ChatOptions::default()
+			.with_top_p(0.3)
+			.with_extra_body(json!({"top_p": 0.9, "metadata": {"source": "test"}}));
+		let options_set = ChatOptionsSet::default().with_chat_options(Some(&chat_options));
+		let target = ServiceTarget {
+			model: ModelIden::new(AdapterKind::OpenAIResp, "gpt-5-mini"),
+			auth: AuthData::from_single("test-key"),
+			endpoint: OpenAIRespAdapter::default_endpoint(AdapterKind::OpenAIResp),
+		};
+
+		let web_req = OpenAIRespAdapter::to_web_request_data(
+			target,
+			ServiceType::Chat,
+			ChatRequest::from_user("hello"),
+			options_set,
+		)
+		.expect("to_web_request_data should succeed");
+
+		assert_eq!(web_req.payload["top_p"], 0.9);
+		assert_eq!(web_req.payload["metadata"]["source"], "test");
+	}
+
+	#[test]
+	fn test_tool_choice_specific_tool_serialized_on_response_payload() {
+		let chat_options = ChatOptions::default().with_tool_choice(ToolChoice::tool("get_weather"));
+		let options_set = ChatOptionsSet::default().with_chat_options(Some(&chat_options));
+		let target = ServiceTarget {
+			model: ModelIden::new(AdapterKind::OpenAIResp, "gpt-5-mini"),
+			auth: AuthData::from_single("test-key"),
+			endpoint: OpenAIRespAdapter::default_endpoint(AdapterKind::OpenAIResp),
+		};
+		let chat_req = ChatRequest::from_user("weather").with_tools(vec![Tool::new("get_weather")]);
+
+		let web_req = OpenAIRespAdapter::to_web_request_data(target, ServiceType::Chat, chat_req, options_set)
+			.expect("to_web_request_data should succeed");
+
+		assert_eq!(
+			web_req.payload["tool_choice"],
+			json!({
+				"type": "function",
+				"name": "get_weather"
+			})
+		);
+	}
 
 	/// Test that assistant message text content uses "output_text" type (not "input_text").
 	///

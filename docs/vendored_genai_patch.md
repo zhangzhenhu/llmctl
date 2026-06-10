@@ -1,73 +1,90 @@
 # Vendored genai Patch
 
-Date: 2026-05-02
+Date: 2026-06-10
 
 llmctl currently builds with:
 
 ```toml
+[dependencies]
+genai = "0.7.0-beta.3"
+
 [patch.crates-io]
 genai = { path = "vendor/genai" }
 ```
 
 This is intentional. llmctl no longer publishes to crates.io while this patch is required. GitHub Release, Homebrew, and `cargo install --git` all build from the repository and therefore include `vendor/genai`.
 
-## Why
+## Base Upstream Version
 
-Aliyun/DashScope is OpenAI-compatible, but some thinking models require provider-specific request fields. For example, `glm-5` keeps streaming `delta.reasoning_content` unless the request body contains:
+The vendored copy now tracks upstream:
 
-```json
-{
-  "enable_thinking": false
-}
-```
+- repository: `jeremychone/rust-genai`
+- tag: `v0.7.0-beta.3`
+- commit: `fa82095877eb548b22c27ecef38b7bcf7c512299`
 
-Published `genai 0.6.0-beta.18` does not expose a request-body passthrough for chat options, so llmctl cannot express this through the normal genai runtime without a patch.
+The patch file for the remaining local changes is stored at:
 
-Aliyun streaming chunks can also include:
+- [genai-v0.7.0-beta.3-llmctl.patch](/Users/test/Documents/projects/llm_probe/patches/genai-v0.7.0-beta.3-llmctl.patch)
 
-```json
-{
-  "usage": null
-}
-```
+The comparison audit used for this upgrade is recorded at:
 
-Published genai tries to deserialize that null value as a usage object and logs an error for stream chunks even though the response itself is valid.
+- [genai_upstream_audit_2026-06-10.md](/Users/test/Documents/projects/llm_probe/docs/genai_upstream_audit_2026-06-10.md)
+
+## Why A Patch Still Exists
+
+Upstream `v0.7.0-beta.3` already includes the earlier llmctl-required runtime features:
+
+- `ChatOptions::with_extra_body(...)`
+- OpenAI Chat Completions `extra_body` payload merge
+- OpenAI Responses `extra_body` payload merge
+- tolerant handling for OpenAI-compatible `usage: null`
+
+So those earlier functional patches are no longer carried locally.
+
+The remaining vendored patch is now only for error diagnostics and one Responses stream edge case:
+
+1. Preserve full chained causes in streamed adapter/web errors.
+2. Surface provider JSON error messages during OpenAI Responses stream parse failures instead of silently warning-and-skipping the bad event.
 
 ## Patch Inventory
 
 Keep this list updated whenever `vendor/genai` changes.
 
-1. `vendor/genai/src/chat/chat_options.rs`
-   - Adds `ChatOptions.extra_body: Option<Value>`.
-   - Adds `ChatOptions::with_extra_body(Value)`.
-   - Adds `ChatOptionsSet::extra_body()`.
+1. `vendor/genai/src/error.rs`
+   - Adds `format_error_chain(...)`.
+   - Renders nested error causes into a stable multi-line string.
 
-2. `vendor/genai/src/adapter/adapters/openai/adapter_shared.rs`
-   - Merges `extra_body` into OpenAI Chat Completions request payloads.
-   - Treats `usage:null` as empty usage instead of logging a deserialization error.
+2. Streamer error-chain formatting
+   - `vendor/genai/src/adapter/adapters/anthropic/streamer.rs`
+   - `vendor/genai/src/adapter/adapters/cohere/streamer.rs`
+   - `vendor/genai/src/adapter/adapters/gemini/streamer.rs`
+   - `vendor/genai/src/adapter/adapters/ollama/streamer.rs`
+   - `vendor/genai/src/adapter/adapters/openai/streamer.rs`
+   - `vendor/genai/src/adapter/adapters/openai_resp/streamer.rs`
+   - Replaces plain `err.to_string()` with formatted chained causes in `Error::WebStream`.
 
-3. `vendor/genai/src/adapter/adapters/openai_resp/adapter_impl.rs`
-   - Merges `extra_body` into OpenAI Responses request payloads.
+3. `vendor/genai/src/adapter/adapters/openai_resp/streamer.rs`
+   - Adds `extract_provider_error_message(...)`.
+   - When a Responses SSE event cannot be deserialized, tries to extract provider-side JSON error details and surface them as `Error::StreamParse`.
 
 ## llmctl Behavior Depending On This Patch
 
-`--reasoning off` for `adapter: aliyun` injects:
+The patch no longer exists for request-body passthrough or `usage:null`; upstream covers those now.
 
-```json
-{
-  "enable_thinking": false
-}
-```
+The current llmctl benefit is operational:
 
-This is resolved in `src/config/resolver.rs` and forwarded in `src/runtime/genai_runtime.rs` through `ChatOptions::with_extra_body`.
+- streamed provider failures include deeper cause chains in logs and surfaced errors
+- malformed or non-standard OpenAI Responses stream events can still expose provider error messages when the server returns JSON-shaped failure payloads
 
 ## Upgrade Checklist
 
-When upgrading genai:
+When upgrading genai again:
 
-1. Check whether upstream genai has native equivalents for every item in the patch inventory.
-2. If upstream supports all items, remove `[patch.crates-io]` and delete `vendor/genai`.
-3. If upstream only supports part of the inventory, re-apply the missing changes to the new `vendor/genai`.
+1. Re-check whether upstream has native equivalents for:
+   - chained-cause stream error rendering
+   - Responses provider-error extraction on stream parse failure
+2. If upstream supports both, remove `[patch.crates-io]`, delete `vendor/genai`, and delete the patch file.
+3. If upstream supports only part of the inventory, regenerate the remaining patch file from the new upstream tag.
 4. Run:
 
 ```bash
@@ -78,10 +95,14 @@ cargo test -q
 cargo build --release
 ```
 
-5. Run a real Aliyun smoke test with a local key, without printing the key:
+5. Run at least one real streamed smoke test on an OpenAI-compatible provider that can emit non-trivial stream failures.
+
+## Regenerating The Patch File
+
+Assuming clean upstream source is available in `/tmp/rust-genai-upstream`:
 
 ```bash
-llmctl -p aliyun -m glm-5 --message "从1数到8，每个数字单独一行" --reasoning off --stream
+diff -ru /tmp/rust-genai-upstream vendor/genai > patches/genai-v<version>-llmctl.patch
 ```
 
-Expected result: normal answer text streams, no thinking content is printed, and no `usage:null` deserialization error is logged.
+The patch file should stay focused. If it starts growing beyond the inventory above, run a fresh upstream audit before carrying more local changes forward.

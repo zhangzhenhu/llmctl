@@ -1,11 +1,11 @@
 //! This is support implementation of the OpenAI Adapter which can also be called by other OpenAI Adapter Variants
 
+use crate::adapter::adapters::openai::OpenAIAdapter;
 use crate::adapter::adapters::support::get_api_key;
-use crate::adapter::openai::OpenAIAdapter;
 use crate::adapter::{AdapterDispatcher, AdapterKind, ServiceType, WebRequestData};
 use crate::chat::{
 	BinarySource, CacheControl, ChatOptionsSet, ChatRequest, ChatResponseFormat, ChatRole, ContentPart,
-	ReasoningEffort, Usage,
+	ReasoningEffort, ToolChoice, Usage,
 };
 use crate::resolver::{AuthData, Endpoint};
 use crate::{Error, Headers, Result};
@@ -21,7 +21,8 @@ fn insert_openai_reasoning_effort(payload: &mut Value, effort: &ReasoningEffort)
 		ReasoningEffort::Low => "low",
 		ReasoningEffort::Medium => "medium",
 		ReasoningEffort::High => "high",
-		ReasoningEffort::XHigh | ReasoningEffort::Max => "xhigh",
+		ReasoningEffort::XHigh => "xhigh",
+		ReasoningEffort::Max => "max",
 		ReasoningEffort::Minimal => "minimal",
 		ReasoningEffort::Budget(_) => return Ok(()),
 	};
@@ -29,6 +30,18 @@ fn insert_openai_reasoning_effort(payload: &mut Value, effort: &ReasoningEffort)
 	payload.x_insert("reasoning_effort", keyword)?;
 
 	Ok(())
+}
+
+fn openai_tool_choice(tool_choice: Option<&ToolChoice>) -> Option<Value> {
+	match tool_choice? {
+		ToolChoice::Auto => Some(json!("auto")),
+		ToolChoice::None => Some(json!("none")),
+		ToolChoice::Required => Some(json!("required")),
+		ToolChoice::Tool { name } => Some(json!({
+			"type": "function",
+			"function": { "name": name }
+		})),
+	}
 }
 
 /// Support functions for other adapters that share OpenAI APIs
@@ -68,7 +81,6 @@ impl OpenAIAdapter {
 	) -> Result<WebRequestData> {
 		let ServiceTarget { model, auth, endpoint } = target;
 		let (_, model_name) = model.model_name.namespace_and_name();
-		let adapter_kind = model.adapter_kind;
 
 		// -- url
 		let url = AdapterDispatcher::get_service_url(&model, service_type, endpoint)?;
@@ -81,18 +93,15 @@ impl OpenAIAdapter {
 
 		// -- compute reasoning_effort and eventual trimmed model_name
 		// For now, just for openai AdapterKind
-		let (reasoning_effort, model_name): (Option<ReasoningEffort>, &str) =
-			if matches!(adapter_kind, AdapterKind::OpenAI) {
-				let (reasoning_effort, model_name) = options_set
-					.reasoning_effort()
-					.cloned()
-					.map(|v| (Some(v), model_name))
-					.unwrap_or_else(|| ReasoningEffort::from_model_name(model_name));
+		let (reasoning_effort, model_name): (Option<ReasoningEffort>, &str) = {
+			let (reasoning_effort, model_name) = options_set
+				.reasoning_effort()
+				.cloned()
+				.map(|v| (Some(v), model_name))
+				.unwrap_or_else(|| ReasoningEffort::from_model_name(model_name));
 
-				(reasoning_effort, model_name)
-			} else {
-				(None, model_name)
-			};
+			(reasoning_effort, model_name)
+		};
 
 		// -- Build the basic payload
 
@@ -118,6 +127,9 @@ impl OpenAIAdapter {
 		// -- Tools
 		if let Some(tools) = tools {
 			payload.x_insert("/tools", tools)?;
+		}
+		if let Some(tool_choice) = openai_tool_choice(options_set.tool_choice()) {
+			payload.x_insert("tool_choice", tool_choice)?;
 		}
 
 		// -- Add options
@@ -204,8 +216,6 @@ impl OpenAIAdapter {
 
 		// -- Provider-specific payload extension
 		// Merged last so callers can intentionally override previously set fields.
-		// llmctl patch: required for providers such as Aliyun/DashScope where
-		// `enable_thinking=false` is the service-side way to disable thinking.
 		if let Some(extra_body) = options_set.extra_body() {
 			payload.x_merge(extra_body.clone())?;
 		}
@@ -215,9 +225,6 @@ impl OpenAIAdapter {
 
 	/// Note: Needs to be called from super::streamer as well
 	pub(super) fn into_usage(adapter: AdapterKind, usage_value: Value) -> Usage {
-		// llmctl patch: some OpenAI-compatible streams, including Aliyun, send
-		// `usage:null` in every chunk. Treat it as absent usage instead of
-		// logging a deserialization error for each chunk.
 		if usage_value.is_null() {
 			return Usage::default();
 		}
@@ -504,10 +511,67 @@ struct OpenAIRequestParts {
 mod tests {
 	use super::*;
 	use crate::adapter::AdapterKind;
-	use crate::chat::{ChatMessage, ContentPart, MessageContent, ToolCall};
+	use crate::chat::{ChatMessage, ChatOptions, ContentPart, MessageContent, Tool, ToolCall, ToolChoice};
 
 	fn test_model() -> ModelIden {
 		ModelIden::new(AdapterKind::OpenAI, "test-model")
+	}
+
+	#[test]
+	fn test_extra_body_merged_into_chat_completion_payload() {
+		let chat_options = ChatOptions::default()
+			.with_temperature(0.2)
+			.with_extra_body(json!({"temperature": 0.7, "enable_thinking": false}));
+		let options_set = ChatOptionsSet::default().with_chat_options(Some(&chat_options));
+		let target = ServiceTarget {
+			model: test_model(),
+			auth: AuthData::from_single("test-key"),
+			endpoint: Endpoint::from_static("https://api.openai.com/v1/"),
+		};
+
+		let web_req = OpenAIAdapter::util_to_web_request_data(
+			target,
+			ServiceType::Chat,
+			ChatRequest::from_user("hello"),
+			options_set,
+			None,
+		)
+		.expect("to_web_request_data should succeed");
+
+		assert_eq!(web_req.payload["enable_thinking"], false);
+		assert_eq!(web_req.payload["temperature"], 0.7);
+	}
+
+	#[test]
+	fn test_tool_choice_specific_tool_serialized_on_chat_completion_payload() {
+		let chat_options = ChatOptions::default().with_tool_choice(ToolChoice::tool("get_weather"));
+		let options_set = ChatOptionsSet::default().with_chat_options(Some(&chat_options));
+		let target = ServiceTarget {
+			model: test_model(),
+			auth: AuthData::from_single("test-key"),
+			endpoint: Endpoint::from_static("https://api.openai.com/v1/"),
+		};
+		let chat_req = ChatRequest::from_user("weather").with_tools(vec![Tool::new("get_weather")]);
+
+		let web_req = OpenAIAdapter::util_to_web_request_data(target, ServiceType::Chat, chat_req, options_set, None)
+			.expect("to_web_request_data should succeed");
+
+		assert_eq!(
+			web_req.payload["tool_choice"],
+			json!({
+				"type": "function",
+				"function": { "name": "get_weather" }
+			})
+		);
+	}
+
+	#[test]
+	fn test_null_usage_is_treated_as_absent_usage() {
+		let usage = OpenAIAdapter::into_usage(AdapterKind::OpenAI, Value::Null);
+
+		assert!(usage.prompt_tokens.is_none());
+		assert!(usage.completion_tokens.is_none());
+		assert!(usage.total_tokens.is_none());
 	}
 
 	/// When an assistant message carries reasoning_content, it must appear

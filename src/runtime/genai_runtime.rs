@@ -110,6 +110,9 @@ impl GenaiRuntime {
 
     pub async fn list_models(&self) -> Result<ModelListResult, LlmProbeError> {
         if self.resolved.base_url.is_some() {
+            // Keep explicit base_url listing on a direct /models request path.
+            // This deliberately avoids relying on genai's Client::all_model_names
+            // resolver semantics for custom endpoints (see rust-genai issue #217).
             return self.list_models_from_base_url().await;
         }
 
@@ -132,7 +135,7 @@ impl GenaiRuntime {
             .ok_or_else(|| LlmProbeError::UnsupportedProvider(self.resolved.adapter.clone()))?;
         let model_names = self
             .client
-            .all_model_names(kind)
+            .all_model_names(kind, ())
             .await
             .map_err(map_genai_error)?;
         let provider = self.resolved.adapter.clone();
@@ -550,6 +553,8 @@ mod tests {
     use crate::config::resolver::ApiKeySource;
     use crate::config::schema::{Message, OpenAiApiMode};
     use std::collections::HashMap;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     fn resolved() -> ResolvedRuntimeConfig {
         ResolvedRuntimeConfig {
@@ -642,5 +647,45 @@ mod tests {
     fn live_models_support_matrix_includes_aliyun() {
         assert!(supports_live_models_endpoint("aliyun"));
         assert!(!supports_live_models_endpoint("anthropic"));
+    }
+
+    #[tokio::test]
+    async fn explicit_base_url_model_listing_hits_user_provided_models_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+        let addr = listener.local_addr().expect("listener addr");
+
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut buf = vec![0_u8; 4096];
+            let n = socket.read(&mut buf).await.expect("read request");
+            let request = String::from_utf8_lossy(&buf[..n]).to_string();
+            let body = r#"{"data":[{"id":"custom-model"}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+            request
+        });
+
+        let mut cfg = resolved();
+        cfg.base_url = Some(format!("http://{addr}/v1/"));
+        cfg.api_key = "test-key".to_string();
+
+        let runtime = GenaiRuntime::from_resolved(cfg).expect("runtime");
+        let result = runtime.list_models().await.expect("list models");
+        let request = server.await.expect("server task");
+
+        assert!(request.starts_with("GET /v1/models HTTP/1.1"));
+        assert!(request.contains("Authorization: Bearer test-key"));
+        assert_eq!(result.source.as_label(), "provider /models endpoint (explicit base_url)");
+        assert_eq!(result.models.len(), 1);
+        assert_eq!(result.models[0].id, "custom-model");
     }
 }

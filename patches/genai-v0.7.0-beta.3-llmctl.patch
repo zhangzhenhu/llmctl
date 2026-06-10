@@ -1,0 +1,248 @@
+diff --git a/upstream/src/adapter/adapters/anthropic/streamer.rs b/vendor/genai/src/adapter/adapters/anthropic/streamer.rs
+index 49a8ce9..0d13320 100644
+--- a/upstream/src/adapter/adapters/anthropic/streamer.rs
++++ b/vendor/genai/src/adapter/adapters/anthropic/streamer.rs
+@@ -2,6 +2,7 @@ use super::parse_cache_creation_details;
+ use crate::adapter::adapters::support::{StreamerCapturedData, StreamerOptions};
+ use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
+ use crate::chat::{ChatOptionsSet, PromptTokensDetails, StopReason, ToolCall, Usage};
++use crate::error::format_error_chain;
+ use crate::webc::{Event, EventSourceStream};
+ use crate::{Error, ModelIden, Result};
+ use serde_json::{Map, Value};
+@@ -243,10 +244,11 @@ impl futures::Stream for AnthropicStreamer {
+ 					}
+ 				}
+ 				Some(Err(err)) => {
+-					tracing::error!("Error: {}", err);
++					let cause = format_error_chain(err.as_ref());
++					tracing::error!("Error: {}", cause);
+ 					return Poll::Ready(Some(Err(Error::WebStream {
+ 						model_iden: self.options.model_iden.clone(),
+-						cause: err.to_string(),
++						cause,
+ 						error: err,
+ 					})));
+ 				}
+diff --git a/upstream/src/adapter/adapters/cohere/streamer.rs b/vendor/genai/src/adapter/adapters/cohere/streamer.rs
+index ae7c3a7..f801146 100644
+--- a/upstream/src/adapter/adapters/cohere/streamer.rs
++++ b/vendor/genai/src/adapter/adapters/cohere/streamer.rs
+@@ -2,6 +2,7 @@ use crate::adapter::adapters::cohere::CohereAdapter;
+ use crate::adapter::adapters::support::{StreamerCapturedData, StreamerOptions};
+ use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
+ use crate::chat::{ChatOptionsSet, StopReason};
++use crate::error::format_error_chain;
+ use crate::webc::WebStream;
+ use crate::{Error, ModelIden, Result};
+ use serde::Deserialize;
+@@ -135,10 +136,11 @@ impl futures::Stream for CohereStreamer {
+ 					}
+ 				}
+ 				Some(Err(err)) => {
+-					tracing::error!("Cohere Adapter Stream Error: {}", err);
++					let cause = format_error_chain(err.as_ref());
++					tracing::error!("Cohere Adapter Stream Error: {}", cause);
+ 					return Poll::Ready(Some(Err(Error::WebStream {
+ 						model_iden: self.options.model_iden.clone(),
+-						cause: err.to_string(),
++						cause,
+ 						error: err,
+ 					})));
+ 				}
+diff --git a/upstream/src/adapter/adapters/gemini/streamer.rs b/vendor/genai/src/adapter/adapters/gemini/streamer.rs
+index 9042aa4..0a9a1c9 100644
+--- a/upstream/src/adapter/adapters/gemini/streamer.rs
++++ b/vendor/genai/src/adapter/adapters/gemini/streamer.rs
+@@ -2,6 +2,7 @@ use super::{GeminiAdapter, GeminiChatResponse};
+ use crate::adapter::adapters::support::{StreamerCapturedData, StreamerOptions};
+ use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
+ use crate::chat::{ChatOptionsSet, StopReason, ToolCall};
++use crate::error::format_error_chain;
+ use crate::webc::{Event, EventSourceStream};
+ use crate::{Error, ModelIden, Result};
+ use serde_json::Value;
+@@ -86,7 +87,8 @@ impl futures::Stream for GeminiStreamer {
+ 								model_iden: self.options.model_iden.clone(),
+ 								serde_error,
+ 							};
+-							tracing::error!("Gemini Adapter Stream Error: {}", err);
++							let cause = format_error_chain(&err);
++							tracing::error!("Gemini Adapter Stream Error: {}", cause);
+ 							return Poll::Ready(Some(Err(err)));
+ 						}
+ 					};
+@@ -96,7 +98,8 @@ impl futures::Stream for GeminiStreamer {
+ 						match GeminiAdapter::body_to_gemini_chat_response(&self.options.model_iden, json_block) {
+ 							Ok(r) => r,
+ 							Err(err) => {
+-								tracing::error!("Gemini Adapter Stream Error: {}", err);
++								let cause = format_error_chain(&err);
++								tracing::error!("Gemini Adapter Stream Error: {}", cause);
+ 								return Poll::Ready(Some(Err(err)));
+ 							}
+ 						};
+@@ -192,10 +195,11 @@ impl futures::Stream for GeminiStreamer {
+ 					}
+ 				}
+ 				Some(Err(err)) => {
+-					tracing::error!("Gemini Adapter Stream Error: {}", err);
++					let cause = format_error_chain(err.as_ref());
++					tracing::error!("Gemini Adapter Stream Error: {}", cause);
+ 					return Poll::Ready(Some(Err(Error::WebStream {
+ 						model_iden: self.options.model_iden.clone(),
+-						cause: err.to_string(),
++						cause,
+ 						error: err,
+ 					})));
+ 				}
+diff --git a/upstream/src/adapter/adapters/ollama/streamer.rs b/vendor/genai/src/adapter/adapters/ollama/streamer.rs
+index 797121c..05b9bfe 100644
+--- a/upstream/src/adapter/adapters/ollama/streamer.rs
++++ b/vendor/genai/src/adapter/adapters/ollama/streamer.rs
+@@ -1,6 +1,7 @@
+ use crate::adapter::adapters::support::{StreamerCapturedData, StreamerOptions};
+ use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
+ use crate::chat::{ChatOptionsSet, StopReason, ToolCall, Usage};
++use crate::error::format_error_chain;
+ use crate::webc::WebStream;
+ use crate::{Error, ModelIden, Result};
+ use serde_json::Value;
+@@ -171,9 +172,10 @@ impl futures::Stream for OllamaStreamer {
+ 					}
+ 				}
+ 				Some(Err(err)) => {
++					let cause = format_error_chain(err.as_ref());
+ 					return Poll::Ready(Some(Err(Error::WebStream {
+ 						model_iden: self.options.model_iden.clone(),
+-						cause: err.to_string(),
++						cause,
+ 						error: err,
+ 					})));
+ 				}
+diff --git a/upstream/src/adapter/adapters/openai/streamer.rs b/vendor/genai/src/adapter/adapters/openai/streamer.rs
+index 9ecb68e..eb07921 100644
+--- a/upstream/src/adapter/adapters/openai/streamer.rs
++++ b/vendor/genai/src/adapter/adapters/openai/streamer.rs
+@@ -3,6 +3,7 @@ use crate::adapter::AdapterKind;
+ use crate::adapter::adapters::support::{StreamerCapturedData, StreamerOptions};
+ use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
+ use crate::chat::{ChatOptionsSet, StopReason, ToolCall, Usage};
++use crate::error::format_error_chain;
+ use crate::webc::{Event, EventSourceStream};
+ use crate::{Error, ModelIden, Result};
+ use serde_json::Value;
+@@ -392,10 +393,11 @@ impl futures::Stream for OpenAIStreamer {
+ 					}
+ 				}
+ 				Some(Err(err)) => {
+-					tracing::error!("Error: {}", err);
++					let cause = format_error_chain(err.as_ref());
++					tracing::error!("Error: {}", cause);
+ 					return Poll::Ready(Some(Err(Error::WebStream {
+ 						model_iden: self.options.model_iden.clone(),
+-						cause: err.to_string(),
++						cause,
+ 						error: err,
+ 					})));
+ 				}
+diff --git a/upstream/src/adapter/adapters/openai_resp/streamer.rs b/vendor/genai/src/adapter/adapters/openai_resp/streamer.rs
+index f5d6169..9fd0b80 100644
+--- a/upstream/src/adapter/adapters/openai_resp/streamer.rs
++++ b/vendor/genai/src/adapter/adapters/openai_resp/streamer.rs
+@@ -2,6 +2,7 @@ use super::RespResponse;
+ use crate::adapter::adapters::support::{StreamerCapturedData, StreamerOptions};
+ use crate::adapter::inter_stream::{InterStreamEnd, InterStreamEvent};
+ use crate::chat::{ChatOptionsSet, StopReason, ToolCall};
++use crate::error::format_error_chain;
+ use crate::webc::{Event, EventSourceStream};
+ use crate::{Error, ModelIden, Result};
+ use serde::Deserialize;
+@@ -136,6 +137,13 @@ impl futures::Stream for OpenAIRespStreamer {
+ 					let stream_event: RespStreamEvent = match serde_json::from_str(&message.data) {
+ 						Ok(stream_event) => stream_event,
+ 						Err(serde_error) => {
++							if let Some(provider_error) = extract_provider_error_message(&message.data) {
++								self.done = true;
++								return Poll::Ready(Some(Err(Error::StreamParse {
++									model_iden: self.options.model_iden.clone(),
++									serde_error: serde::de::Error::custom(provider_error),
++								})));
++							}
+ 							// If we are in debug, we might want to know about this
+ 							tracing::warn!(
+ 								"OpenAIRespStreamer - fail to parse event (skipping). Cause: {serde_error}. Data: {}",
+@@ -356,10 +364,11 @@ impl futures::Stream for OpenAIRespStreamer {
+ 					}
+ 				}
+ 				Some(Err(err)) => {
+-					tracing::error!("Error: {}", err);
++					let cause = format_error_chain(err.as_ref());
++					tracing::error!("Error: {}", cause);
+ 					return Poll::Ready(Some(Err(Error::WebStream {
+ 						model_iden: self.options.model_iden.clone(),
+-						cause: err.to_string(),
++						cause,
+ 						error: err,
+ 					})));
+ 				}
+@@ -385,3 +394,24 @@ impl futures::Stream for OpenAIRespStreamer {
+ 		Poll::Pending
+ 	}
+ }
++
++fn extract_provider_error_message(raw: &str) -> Option<String> {
++	let value: Value = serde_json::from_str(raw).ok()?;
++
++	if let Some(message) = value
++		.get("error")
++		.and_then(|v| v.get("message"))
++		.and_then(Value::as_str)
++	{
++		return Some(message.to_string());
++	}
++
++	if let Some(message) = value.get("message").and_then(Value::as_str) {
++		if let Some(code) = value.get("code").and_then(Value::as_str) {
++			return Some(format!("{code}: {message}"));
++		}
++		return Some(message.to_string());
++	}
++
++	None
++}
+diff --git a/upstream/src/error.rs b/vendor/genai/src/error.rs
+index 1e03d76..da01d9f 100644
+--- a/upstream/src/error.rs
++++ b/vendor/genai/src/error.rs
+@@ -11,6 +11,30 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
+ /// GenAI main Result type alias (with genai::Error)
+ pub type Result<T> = core::result::Result<T, Error>;
+ 
++pub(crate) fn format_error_chain(error: &(dyn std::error::Error + 'static)) -> String {
++	let mut parts = vec![error.to_string()];
++	let mut current = error.source();
++
++	while let Some(source) = current {
++		let rendered = source.to_string();
++		if parts.last() != Some(&rendered) {
++			parts.push(rendered);
++		}
++		current = source.source();
++	}
++
++	if parts.len() == 1 {
++		return parts.remove(0);
++	}
++
++	let mut rendered = parts[0].clone();
++	rendered.push_str("\nCaused by:");
++	for (idx, part) in parts.iter().enumerate().skip(1) {
++		rendered.push_str(&format!("\n  {idx}: {part}"));
++	}
++	rendered
++}
++
+ /// Main GenAI error
+ #[derive(Debug, From, Display)]
+ #[allow(missing_docs)]

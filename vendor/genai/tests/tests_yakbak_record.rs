@@ -82,8 +82,7 @@ async fn record_openai_resp_reasoning_summary_capture() -> TestResult<()> {
 	// must land in `captured_reasoning_content` — previously the
 	// streamer only parsed the `response.reasoning_text.delta`
 	// family and silently dropped summaries.
-	let (client, mut server) =
-		record_client("openai_resp", "reasoning_summary_capture", &openai_backend()).await?;
+	let (client, mut server) = record_client("openai_resp", "reasoning_summary_capture", &openai_backend()).await?;
 
 	let chat_req = ChatRequest::new(vec![
 		ChatMessage::system("Answer concisely."),
@@ -98,8 +97,27 @@ async fn record_openai_resp_reasoning_summary_capture() -> TestResult<()> {
 	let stream_res = client.exec_chat_stream(OPENAI_MODEL, chat_req, Some(&options)).await?;
 	let extract = extract_stream_end(stream_res.stream).await?;
 	eprintln!(
-		"[record] reasoning_summary_capture reasoning_content: {:?}",
-		extract.reasoning_content.as_deref().map(|s| &s[..s.len().min(200)])
+		"[record] Stream content: {:?}",
+		extract.content.as_deref().map(|s| &s[..s.len().min(80)])
+	);
+
+	server.shutdown().await;
+	Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn record_aihubmix_chat_stream() -> TestResult<()> {
+	let (client, mut server) = record_client("aihubmix", "chat_stream", &aihubmix_backend()).await?;
+
+	let chat_req = ChatRequest::new(vec![ChatMessage::user("Say 'hello' and nothing else.")]);
+	let options = ChatOptions::default().with_capture_content(true).with_capture_usage(true);
+
+	let stream_res = client.exec_chat_stream(AIHUBMIX_MODEL, chat_req, Some(&options)).await?;
+	let extract = extract_stream_end(stream_res.stream).await?;
+	eprintln!(
+		"[record] Stream content: {:?}",
+		extract.content.as_deref().map(|s| &s[..s.len().min(80)])
 	);
 
 	server.shutdown().await;
@@ -132,6 +150,7 @@ fn gemini_backend() -> String {
 }
 
 const GEMINI_MODEL: &str = "gemini-2.5-flash";
+const GEMINI_TOOL_MODEL: &str = "gemini-3.1-pro-preview";
 
 #[tokio::test]
 #[ignore]
@@ -156,6 +175,51 @@ async fn record_gemini_thinking_stream() -> TestResult<()> {
 	eprintln!(
 		"[record] Stream reasoning: {:?}",
 		extract.reasoning_content.as_deref().map(|s| &s[..s.len().min(80)])
+	);
+
+	server.shutdown().await;
+	Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn record_gemini_tool_stream() -> TestResult<()> {
+	let (client, mut server) = record_client("gemini", "tool_stream", &gemini_backend()).await?;
+
+	// A reasoning-heavy prompt so the model emits `thought:true` summary parts
+	// alongside the `functionCall` — exercises text + reasoning + tool-call
+	// paths of the SSE streamer in a single cassette.
+	let chat_req = ChatRequest::new(vec![
+		ChatMessage::system("You are a thoughtful assistant. Always reason carefully before invoking tools."),
+		ChatMessage::user(
+			"Of these three cities — Berlin, Cairo, Paris — exactly one is in Africa. \
+			 Reason carefully about which one, then call get_weather for that city in Celsius. \
+			 Walk through your reasoning explicitly.",
+		),
+	])
+	.append_tool(Tool::new("get_weather").with_schema(json!({
+		"type": "object",
+		"properties": {
+			"city":    { "type": "string", "description": "The city name" },
+			"country": { "type": "string", "description": "The country" },
+			"unit":    { "type": "string", "enum": ["C", "F"] }
+		},
+		"required": ["city", "country", "unit"],
+	})));
+
+	let options = ChatOptions::default()
+		.with_reasoning_effort(ReasoningEffort::High)
+		.with_capture_content(true)
+		.with_capture_reasoning_content(true)
+		.with_capture_tool_calls(true);
+
+	let stream_res = client.exec_chat_stream(GEMINI_TOOL_MODEL, chat_req, Some(&options)).await?;
+	let extract = extract_stream_end(stream_res.stream).await?;
+	let tool_calls = &extract.stream_end.captured_tool_calls();
+	eprintln!("[record] Tool calls: {:?}", tool_calls.as_ref().map(|tc| tc.len()));
+	eprintln!(
+		"[record] Reasoning len: {:?}",
+		extract.reasoning_content.as_deref().map(|s| s.len())
 	);
 
 	server.shutdown().await;
@@ -237,7 +301,13 @@ fn ollama_cloud_backend() -> String {
 	std::env::var("OLLAMA_CLOUD_BASE_URL").unwrap_or_else(|_| "https://ollama.com/".to_string())
 }
 
+fn aihubmix_backend() -> String {
+	std::env::var("AIHUBMIX_BASE_URL").unwrap_or_else(|_| "https://aihubmix.com/v1/".to_string())
+}
+
 const OLLAMA_CLOUD_MODEL: &str = "ollama_cloud::gemma3:4b";
+
+const AIHUBMIX_MODEL: &str = "aihubmix::gpt-4o-mini";
 
 #[tokio::test]
 #[ignore]

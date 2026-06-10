@@ -1,9 +1,8 @@
 //! API DOC: <https://github.com/ollama/ollama/blob/main/docs/api.md>
 
-use super::adapter_shared::OllamaRequestParts;
+use super::{OllamaRequestParts, OllamaStreamer};
 use crate::Headers;
 use crate::Result;
-use crate::adapter::ollama::OllamaStreamer;
 use crate::adapter::{Adapter, AdapterKind, ServiceType, WebRequestData};
 use crate::chat::{
 	ChatOptionsSet, ChatRequest, ChatResponse, ChatStream, ChatStreamResponse, MessageContent, StopReason, ToolCall,
@@ -23,12 +22,12 @@ pub struct OllamaAdapter;
 impl Adapter for OllamaAdapter {
 	const DEFAULT_API_KEY_ENV_NAME: Option<&'static str> = None;
 
-	fn default_endpoint() -> Endpoint {
+	fn default_endpoint(_kind: AdapterKind) -> Endpoint {
 		const BASE_URL: &str = "http://localhost:11434/";
 		Endpoint::from_static(BASE_URL)
 	}
 
-	fn default_auth() -> AuthData {
+	fn default_auth(_kind: AdapterKind) -> AuthData {
 		match Self::DEFAULT_API_KEY_ENV_NAME {
 			Some(env_name) => AuthData::from_env(env_name),
 			None => AuthData::from_single("ollama"),

@@ -40,10 +40,7 @@ async fn test_yakbak_openai_resp_reasoning_summary_capture() -> TestResult<()> {
 		.reasoning_content
 		.as_deref()
 		.ok_or("reasoning_content should be populated")?;
-	assert!(
-		!reasoning.is_empty(),
-		"reasoning_content populated but empty"
-	);
+	assert!(!reasoning.is_empty(), "reasoning_content populated but empty");
 	// First summary chunk for the recorded prompt starts with a
 	// header line we can pin — the API formats summaries as
 	// "**Topic**\n\nFirst line..." and the exact header is stable
@@ -280,6 +277,133 @@ async fn test_yakbak_openai_resp_multi_tool_ordering() -> TestResult<()> {
 	assert_eq!(usage.prompt_tokens, Some(150));
 	assert_eq!(usage.completion_tokens, Some(80));
 	assert_eq!(usage.total_tokens, Some(230));
+
+	Ok(())
+}
+
+#[tokio::test]
+async fn test_yakbak_openai_resp_reasoning_stream_completed_empty() -> TestResult<()> {
+	// Regression for the `output_item.done` capture path in `streamer.rs`.
+	//
+	// Some Responses-API-shaped backends (proxies that forward to ChatGPT
+	// internal endpoints, custom Azure deployments, etc.) emit each
+	// `type:"reasoning"` item via `response.output_item.added` and
+	// `response.output_item.done` events, but then send a terminal
+	// `response.completed` whose `response.output` array is empty `[]`.
+	//
+	// Before the fix, the streamer only scanned `response.output` at
+	// completion time to pull out encrypted reasoning blobs — so on these
+	// backends, `captured_thought_signatures()` came back empty even
+	// though the wire had clearly delivered the blob. After the fix, the
+	// blob is captured as the `output_item.done` event fires, and falls
+	// back to the `response.output` scan only if the streaming events
+	// didn't carry it.
+	let (client, _server) = replay_client("openai_resp", "reasoning_stream_completed_empty").await?;
+
+	let chat_req = ChatRequest::new(vec![
+		ChatMessage::system("Answer in one sentence."),
+		ChatMessage::user("Why is the sky blue?"),
+	]);
+	let options = ChatOptions::default()
+		.with_reasoning_effort(ReasoningEffort::Low)
+		.with_capture_content(true)
+		.with_capture_reasoning_content(true)
+		.with_capture_usage(true);
+
+	let stream_res = client
+		.exec_chat_stream("openai_resp::gpt-5.4-mini", chat_req, Some(&options))
+		.await?;
+	let extract = extract_stream_end(stream_res.stream).await?;
+
+	// Encrypted reasoning content should still be captured — sourced from
+	// the `output_item.done` event, not from `response.output`.
+	let thought_sigs = extract
+		.stream_end
+		.captured_thought_signatures()
+		.ok_or("Should have captured thought signatures from output_item.done")?;
+	assert_eq!(
+		thought_sigs.len(),
+		1,
+		"Should have exactly one thought signature even when response.completed.output is empty"
+	);
+	assert!(
+		thought_sigs[0].len() > 100,
+		"Encrypted content should be substantial, got {} bytes",
+		thought_sigs[0].len()
+	);
+
+	// Text content still flows through the delta events.
+	assert_eq!(
+		extract.content.as_deref(),
+		Some(
+			"The sky looks blue because molecules in Earth\u{2019}s atmosphere scatter shorter blue wavelengths of sunlight more strongly than longer red wavelengths, sending more blue light to our eyes."
+		),
+		"Text content should still arrive via delta events"
+	);
+
+	Ok(())
+}
+
+#[tokio::test]
+async fn test_yakbak_openai_resp_tools_completed_no_output_field() -> TestResult<()> {
+	// Regression for `RespResponse` deserialization in `resp_response.rs`.
+	//
+	// Some Responses-API-shaped backends omit the `output` field from the
+	// terminal `response.completed` event entirely (not `output: []`,
+	// absent). Without `#[serde(default)]` on `RespResponse::output`,
+	// serde fails the whole event with "missing field `output`", the
+	// streamer skips it as malformed, and the stream closes via the
+	// EOF fallback — which never finalises the per-`output_index` tool
+	// calls accumulated in `in_progress_tool_calls`. Result:
+	// `captured_tool_calls` comes back `None` even though every
+	// `response.function_call_arguments.delta` arrived intact.
+	//
+	// This cassette was recorded against a real backend where the issue
+	// reproduces; the `response.completed` event has no `output` key.
+	let (client, _server) = replay_client("openai_resp", "tools_completed_no_output_field").await?;
+
+	let chat_req = ChatRequest::new(vec![
+		ChatMessage::system("You are a helpful assistant. Use tools when needed."),
+		ChatMessage::user("What is the temperature in C and weather, in Paris, France"),
+	])
+	.append_tool(Tool::new("get_weather").with_schema(json!({
+		"type": "object",
+		"properties": {
+			"city":    { "type": "string" },
+			"country": { "type": "string" },
+			"unit":    { "type": "string", "enum": ["C", "F"] }
+		},
+		"required": ["city", "country", "unit"]
+	})));
+
+	let options = ChatOptions::default()
+		.with_reasoning_effort(ReasoningEffort::Low)
+		.with_capture_tool_calls(true)
+		.with_capture_usage(true);
+
+	let stream_res = client
+		.exec_chat_stream("openai_resp::gpt-5.4", chat_req, Some(&options))
+		.await?;
+	let extract = extract_stream_end(stream_res.stream).await?;
+
+	let tool_calls = extract
+		.stream_end
+		.captured_tool_calls()
+		.ok_or("Tool call accumulated from delta events should survive a response.completed with no `output` field")?;
+	assert_eq!(tool_calls.len(), 1, "Expected exactly one tool call");
+
+	let tc = &tool_calls[0];
+	assert_eq!(tc.fn_name, "get_weather");
+	assert_eq!(
+		tc.fn_arguments,
+		json!({"city": "Paris", "country": "France", "unit": "C"})
+	);
+	assert!(!tc.call_id.is_empty());
+
+	let usage = extract.stream_end.captured_usage.as_ref().ok_or("Should have usage")?;
+	assert_eq!(usage.prompt_tokens, Some(82));
+	assert_eq!(usage.completion_tokens, Some(26));
+	assert_eq!(usage.total_tokens, Some(108));
 
 	Ok(())
 }

@@ -52,6 +52,28 @@ cases:
       - "effective_model: openai::gpt-4o"
     stderr_contains: []
 
+  - name: "cli_base_url_without_trailing_slash_is_normalized"
+    config_yaml: |
+      version: 2
+      active_profile: openai_main
+      profiles:
+        openai_main:
+          adapter: openai
+          model: gpt-5
+          api_key: test-key
+    args:
+      - "-c"
+      - "{config_path}"
+      - "-u"
+      - "https://integrate.api.nvidia.com/v1"
+      - "--dry-run"
+    expect_exit_code: 0
+    stdout_contains:
+      - "adapter: openai"
+      - "base_url: https://integrate.api.nvidia.com/v1/"
+      - "effective_model: openai::gpt-5"
+    stderr_contains: []
+
   - name: "aliyun_endpoint_responses_is_enforced_with_openai_resp_namespace"
     config_yaml: |
       version: 2

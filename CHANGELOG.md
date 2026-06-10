@@ -7,6 +7,19 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded vendored `genai` to upstream `0.7.0-beta.3` and refreshed the vendored source snapshot to match the new upstream baseline.
+- Reduced the remaining local `vendor/genai` patch set to error-diagnostics and OpenAI Responses stream parse handling only, since upstream now includes the earlier `extra_body` and `usage:null` support.
+
+### Fixed
+
+- Kept explicit `base_url` model listing on a direct `{base_url}/models` path and added a regression test so `llmctl --list` continues to avoid rust-genai issue `#217` when users target custom OpenAI-compatible endpoints.
+
+### Docs
+
+- Added an upstream audit note for the `genai` upgrade and rewrote the vendored patch documentation around the new `0.7.0-beta.3` baseline and residual patch file.
+
 ## [2.1.0] - 2026-05-08
 
 ### Changed

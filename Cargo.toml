@@ -39,15 +39,13 @@ log = "0.4"
 env_logger = "0.11"
 reqwest = { version = "0.13.3", features = ["rustls","json", "stream","multipart", "gzip", "http2", "socks", "system-proxy"],default-features = false }
 async-trait = "0.1"
-genai = "0.6.0-beta.18"
+genai = "0.7.0-beta.3"
 
 [features]
 default = []
 
-# llmctl currently relies on a small genai patch for OpenAI-compatible
-# providers:
-# - ChatOptions::with_extra_body request passthrough
-# - tolerant handling for streaming chunks with usage:null
+# llmctl currently relies on a small vendored genai patch for
+# stream-error diagnostics and OpenAI Responses provider-error parsing.
 #
 # crates.io publishing is disabled while this patch is required. Before
 # removing this section or upgrading genai, see docs/vendored_genai_patch.md.

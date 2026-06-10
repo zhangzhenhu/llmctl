@@ -1,6 +1,6 @@
+use crate::adapter::adapters::anthropic::{AnthropicAdapter, AnthropicRequestParts};
+use crate::adapter::adapters::gemini::GeminiAdapter;
 use crate::adapter::adapters::support::get_api_key;
-use crate::adapter::anthropic::{AnthropicAdapter, AnthropicRequestParts};
-use crate::adapter::gemini::GeminiAdapter;
 use crate::adapter::{Adapter, AdapterKind, ServiceType, WebRequestData};
 use crate::chat::{ChatOptionsSet, ChatRequest, ChatResponse, ChatStreamResponse};
 use crate::resolver::{AuthData, Endpoint};
@@ -54,7 +54,7 @@ impl VertexPublisher {
 impl Adapter for VertexAdapter {
 	const DEFAULT_API_KEY_ENV_NAME: Option<&'static str> = Some(Self::API_KEY_DEFAULT_ENV_NAME);
 
-	fn default_endpoint() -> Endpoint {
+	fn default_endpoint(_kind: AdapterKind) -> Endpoint {
 		let project_id = std::env::var("VERTEX_PROJECT_ID").unwrap_or_else(|_| {
 			warn!("VERTEX_PROJECT_ID env var is not set; Vertex AI requests will use a malformed URL");
 			String::new()
@@ -69,7 +69,7 @@ impl Adapter for VertexAdapter {
 		};
 		Endpoint::from_owned(base_url)
 	}
-	fn default_auth() -> AuthData {
+	fn default_auth(_kind: AdapterKind) -> AuthData {
 		match Self::DEFAULT_API_KEY_ENV_NAME {
 			Some(env_name) => AuthData::from_env(env_name),
 			None => AuthData::None,
@@ -103,7 +103,7 @@ impl Adapter for VertexAdapter {
 			VertexPublisher::Google => match service_type {
 				ServiceType::Chat => format!("{base_url}{publisher_path}/models/{model_name}:generateContent"),
 				ServiceType::ChatStream => {
-					format!("{base_url}{publisher_path}/models/{model_name}:streamGenerateContent")
+					format!("{base_url}{publisher_path}/models/{model_name}:streamGenerateContent?alt=sse")
 				}
 				ServiceType::Embed => format!("{base_url}{publisher_path}/models/{model_name}:predict"),
 			},
@@ -246,7 +246,7 @@ impl VertexAdapter {
 			system,
 			messages,
 			tools,
-		} = AnthropicAdapter::into_anthropic_request_parts(chat_req)?;
+		} = AnthropicAdapter::into_anthropic_request_parts(chat_req, options_set.cache_control().cloned())?;
 
 		// Vertex Anthropic: model is in URL, not body; anthropic_version goes in body
 		let stream = matches!(service_type, ServiceType::ChatStream);
