@@ -245,18 +245,31 @@ llmctl -c llm.yaml
 
 | Adapter | 常用别名 | 备注 |
 |---------|----------|------|
-| `openai` | `oi`, `oai` | OpenAI-compatible 协议族 |
+| `openai` | `oi`, `oai`, `openai-compatible` | OpenAI-compatible 协议族 |
 | `aliyun` | `ali`, `dashscope`, `ds` | DashScope / 阿里云 |
-| `anthropic` | `claude`, `anth` | |
-| `gemini` | `google`, `gmi` | |
-| `ollama` | `ol` | 本地部署 |
+| `anthropic` | `claude`, `anth` | Anthropic 原生协议 |
+| `gemini` | `google`, `gmi` | Gemini 原生协议 |
+| `ollama` | `ol` | 本地 Ollama 部署 |
 | `deepseek` | `dsk` | |
 | `xai` | `grok` | |
 | `groq` | `gq` | |
-| `cohere` | `co` | |
+| `cohere` | `co` | Cohere 原生协议 |
 | `fireworks` | `fw` | |
 | `together` | `tg` | |
 | `zai` | `zhipu`, `zhi` | Z.ai / 智谱 |
+| `aihubmix` | `ahm` | OpenAI-compatible 网关 |
+| `mimo` |  | 小米 Mimo |
+| `moonshot` |  | Moonshot AI |
+| `nebius` |  | Nebius AI Studio |
+| `ollama_cloud` | `ollama-cloud` | Ollama 云端接口 |
+| `vertex` |  | Vertex AI namespaced 模型 |
+| `github_copilot` | `github-copilot` | GitHub Models 网关 |
+| `opencode_go` | `opencode-go` | OpenCode Go 网关 |
+| `bedrock_api` | `bedrock-api` | AWS Bedrock Bearer Token API |
+| `open_router` | `open-router`, `openrouter` | OpenRouter 网关 |
+| `minimax` |  | MiniMax Anthropiс-compatible 接口 |
+| `baidu` |  | 百度千帆 |
+| `bigmodel` |  | BigModel / 智谱开放平台 |
 
 ## 配置参考
 

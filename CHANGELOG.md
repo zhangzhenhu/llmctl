@@ -13,6 +13,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Reduced the remaining local `vendor/genai` patch set to error-diagnostics and OpenAI Responses stream parse handling only, since upstream now includes the earlier `extra_body` and `usage:null` support.
 - Refined chat result metadata output to show `Profile`, `Adapter`, and the provider-returned `Model` separately, with `Requested Model` and `Effective Model` shown only when they differ.
  - Refined chat result metadata output to show compact one-line `Profile`, `Adapter`, and provider-returned `Model` details, with `Requested Model` shown only when it differs.
+- Expanded `llmctl` built-in adapter coverage and user-facing adapter docs/templates to align with the vendored `genai 0.7` adapter set, including new gateway and provider presets such as `open_router`, `github_copilot`, `bedrock_api`, `moonshot`, `baidu`, and `bigmodel`.
 
 ### Fixed
 

@@ -61,7 +61,7 @@ defaults:
 profiles:
   # Profile name: openai_main
   openai_main:
-    adapter: openai                  # openai | aliyun | anthropic | gemini | ollama | deepseek | xai | groq | cohere | fireworks | together | zai
+    adapter: openai                  # openai | aliyun | anthropic | gemini | ollama | deepseek | xai | groq | cohere | fireworks | together | zai | aihubmix | mimo | moonshot | nebius | ollama_cloud | vertex | github_copilot | opencode_go | bedrock_api | open_router | minimax | baidu | bigmodel
     model: gpt-4o
     api_key_env: OPENAI_API_KEY      # read API key from env var
     # no_proxy: true                 # disable proxies for this profile only
@@ -80,6 +80,24 @@ profiles:
   #   model: qwen-plus
   #   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/
   #   api_key_env: ALIYUN_API_KEY
+  #
+  # Example: OpenRouter gateway profile
+  # openrouter_main:
+  #   adapter: open_router
+  #   model: openai/gpt-4.1-mini
+  #   api_key_env: OPEN_ROUTER_API_KEY
+  #
+  # Example: GitHub Models profile
+  # github_models:
+  #   adapter: github_copilot
+  #   model: openai/gpt-4.1-mini
+  #   api_key_env: GITHUB_TOKEN
+  #
+  # Example: Bedrock API profile
+  # bedrock_claude:
+  #   adapter: bedrock_api
+  #   model: anthropic.claude-sonnet-4-5-20250929-v1:0
+  #   api_key_env: BEDROCK_API_KEY
   #   # Reasoning differs by model/provider. Prefer --dry-run first,
   #   # then set reasoning only when the selected model supports it.
   #   # reasoning: auto

@@ -248,18 +248,31 @@ llmctl -c llm.yaml
 
 | Adapter | Common aliases | Notes |
 |---------|----------------|-------|
-| `openai` | `oi`, `oai` | OpenAI-compatible protocol family |
+| `openai` | `oi`, `oai`, `openai-compatible` | OpenAI-compatible protocol family |
 | `aliyun` | `ali`, `dashscope`, `ds` | DashScope / Aliyun |
-| `anthropic` | `claude`, `anth` | |
-| `gemini` | `google`, `gmi` | |
-| `ollama` | `ol` | Local deployment |
+| `anthropic` | `claude`, `anth` | Anthropic native protocol |
+| `gemini` | `google`, `gmi` | Gemini native protocol |
+| `ollama` | `ol` | Local Ollama deployment |
 | `deepseek` | `dsk` | |
 | `xai` | `grok` | |
 | `groq` | `gq` | |
-| `cohere` | `co` | |
+| `cohere` | `co` | Cohere native protocol |
 | `fireworks` | `fw` | |
 | `together` | `tg` | |
 | `zai` | `zhipu`, `zhi` | Z.ai / Zhipu |
+| `aihubmix` | `ahm` | OpenAI-compatible gateway |
+| `mimo` |  | Xiaomi Mimo |
+| `moonshot` |  | Moonshot AI |
+| `nebius` |  | Nebius AI Studio |
+| `ollama_cloud` | `ollama-cloud` | Ollama cloud endpoint |
+| `vertex` |  | Vertex AI namespaced models |
+| `github_copilot` | `github-copilot` | GitHub Models gateway |
+| `opencode_go` | `opencode-go` | OpenCode Go gateway |
+| `bedrock_api` | `bedrock-api` | AWS Bedrock bearer-token API |
+| `open_router` | `open-router`, `openrouter` | OpenRouter gateway |
+| `minimax` |  | MiniMax Anthropiс-compatible endpoint |
+| `baidu` |  | Baidu Qianfan |
+| `bigmodel` |  | BigModel / Zhipu open platform |
 
 ## Configuration Reference
 

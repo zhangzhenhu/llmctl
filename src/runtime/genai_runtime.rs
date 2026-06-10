@@ -494,6 +494,19 @@ fn adapter_kind_for(resolved: &ResolvedRuntimeConfig) -> Option<AdapterKind> {
         "fireworks" => Some(AdapterKind::Fireworks),
         "together" => Some(AdapterKind::Together),
         "zai" => Some(AdapterKind::Zai),
+        "aihubmix" => Some(AdapterKind::Aihubmix),
+        "mimo" => Some(AdapterKind::Mimo),
+        "moonshot" => Some(AdapterKind::Moonshot),
+        "nebius" => Some(AdapterKind::Nebius),
+        "ollama_cloud" => Some(AdapterKind::OllamaCloud),
+        "vertex" => Some(AdapterKind::Vertex),
+        "github_copilot" => Some(AdapterKind::GithubCopilot),
+        "opencode_go" => Some(AdapterKind::OpenCodeGo),
+        "bedrock_api" => Some(AdapterKind::BedrockApi),
+        "open_router" => Some(AdapterKind::OpenRouter),
+        "minimax" => Some(AdapterKind::MiniMax),
+        "baidu" => Some(AdapterKind::Baidu),
+        "bigmodel" => Some(AdapterKind::BigModel),
         _ => None,
     }
 }
@@ -515,6 +528,7 @@ fn supports_live_models_endpoint(adapter: &str) -> bool {
         adapter,
         "openai"
             | "aliyun"
+            | "aihubmix"
             | "deepseek"
             | "xai"
             | "groq"
@@ -522,6 +536,14 @@ fn supports_live_models_endpoint(adapter: &str) -> bool {
             | "fireworks"
             | "together"
             | "zai"
+            | "mimo"
+            | "moonshot"
+            | "nebius"
+            | "github_copilot"
+            | "opencode_go"
+            | "open_router"
+            | "baidu"
+            | "bigmodel"
     )
 }
 
@@ -538,6 +560,7 @@ fn models_base_url_for(resolved: &ResolvedRuntimeConfig) -> Option<String> {
     let default = match resolved.adapter.as_str() {
         "openai" => Some("https://api.openai.com/v1"),
         "aliyun" => Some("https://dashscope.aliyuncs.com/compatible-mode/v1/"),
+        "aihubmix" => Some("https://aihubmix.com/v1/"),
         "deepseek" => Some("https://api.deepseek.com/v1"),
         "xai" => Some("https://api.x.ai/v1"),
         "groq" => Some("https://api.groq.com/openai/v1"),
@@ -545,6 +568,14 @@ fn models_base_url_for(resolved: &ResolvedRuntimeConfig) -> Option<String> {
         "fireworks" => Some("https://api.fireworks.ai/inference/v1"),
         "together" => Some("https://api.together.xyz/v1"),
         "zai" => Some("https://api.z.ai/api/paas/v4"),
+        "mimo" => Some("https://api.xiaomimimo.com/v1/"),
+        "moonshot" => Some("https://api.moonshot.cn/v1/"),
+        "nebius" => Some("https://api.studio.nebius.ai/v1/"),
+        "github_copilot" => Some("https://models.github.ai/inference/"),
+        "opencode_go" => Some("https://opencode.ai/zen/go/v1/"),
+        "open_router" => Some("https://openrouter.ai/api/v1/"),
+        "baidu" => Some("https://qianfan.baidubce.com/v2/"),
+        "bigmodel" => Some("https://open.bigmodel.cn/api/paas/v4/"),
         _ => None,
     };
     default.map(str::to_string)
@@ -659,7 +690,29 @@ mod tests {
     #[test]
     fn live_models_support_matrix_includes_aliyun() {
         assert!(supports_live_models_endpoint("aliyun"));
+        assert!(supports_live_models_endpoint("open_router"));
+        assert!(supports_live_models_endpoint("github_copilot"));
         assert!(!supports_live_models_endpoint("anthropic"));
+        assert!(!supports_live_models_endpoint("vertex"));
+        assert!(!supports_live_models_endpoint("bedrock_api"));
+        assert!(!supports_live_models_endpoint("ollama_cloud"));
+        assert!(!supports_live_models_endpoint("minimax"));
+    }
+
+    #[test]
+    fn adapter_kind_maps_new_genai_07_adapters() {
+        let mut cfg = resolved();
+        cfg.adapter = "open_router".to_string();
+        cfg.effective_model = "open_router::openai/gpt-4.1".to_string();
+        assert_eq!(adapter_kind_for(&cfg), Some(AdapterKind::OpenRouter));
+
+        cfg.adapter = "github_copilot".to_string();
+        cfg.effective_model = "github_copilot::openai/gpt-4.1-mini".to_string();
+        assert_eq!(adapter_kind_for(&cfg), Some(AdapterKind::GithubCopilot));
+
+        cfg.adapter = "bedrock_api".to_string();
+        cfg.effective_model = "bedrock_api::anthropic.claude-sonnet-4-5".to_string();
+        assert_eq!(adapter_kind_for(&cfg), Some(AdapterKind::BedrockApi));
     }
 
     #[tokio::test]

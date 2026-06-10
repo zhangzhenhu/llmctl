@@ -198,6 +198,123 @@ const BUILTIN_ADAPTER_SPECS: &[BuiltinAdapterSpec] = &[
             default_model: Some("glm-4.5"),
         },
     },
+    BuiltinAdapterSpec {
+        name: "aihubmix",
+        aliases: &["aihubmix", "ahm"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://aihubmix.com/v1/"),
+            api_key_env: Some("AIHUBMIX_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "mimo",
+        aliases: &["mimo"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.xiaomimimo.com/v1/"),
+            api_key_env: Some("MIMO_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "moonshot",
+        aliases: &["moonshot"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.moonshot.cn/v1/"),
+            api_key_env: Some("MOONSHOT_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "nebius",
+        aliases: &["nebius"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.studio.nebius.ai/v1/"),
+            api_key_env: Some("NEBIUS_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "ollama_cloud",
+        aliases: &["ollama_cloud", "ollama-cloud"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://ollama.com/"),
+            api_key_env: Some("OLLAMA_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "vertex",
+        aliases: &["vertex"],
+        defaults: AdapterDefaults {
+            base_url: None,
+            api_key_env: Some("VERTEX_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "github_copilot",
+        aliases: &["github_copilot", "github-copilot"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://models.github.ai/inference/"),
+            api_key_env: Some("GITHUB_TOKEN"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "opencode_go",
+        aliases: &["opencode_go", "opencode-go"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://opencode.ai/zen/go/v1/"),
+            api_key_env: Some("OPENCODE_GO_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "bedrock_api",
+        aliases: &["bedrock_api", "bedrock-api"],
+        defaults: AdapterDefaults {
+            base_url: None,
+            api_key_env: Some("BEDROCK_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "open_router",
+        aliases: &["open_router", "open-router", "openrouter"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://openrouter.ai/api/v1/"),
+            api_key_env: Some("OPEN_ROUTER_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "minimax",
+        aliases: &["minimax"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://api.minimax.io/anthropic/v1/"),
+            api_key_env: Some("MINIMAX_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "baidu",
+        aliases: &["baidu"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://qianfan.baidubce.com/v2/"),
+            api_key_env: Some("BAIDU_API_KEY"),
+            default_model: None,
+        },
+    },
+    BuiltinAdapterSpec {
+        name: "bigmodel",
+        aliases: &["bigmodel"],
+        defaults: AdapterDefaults {
+            base_url: Some("https://open.bigmodel.cn/api/paas/v4/"),
+            api_key_env: Some("BIGMODEL_API_KEY"),
+            default_model: None,
+        },
+    },
 ];
 
 pub fn list_builtin_adapters() -> Vec<BuiltinAdapterInfo> {
@@ -216,6 +333,10 @@ pub fn list_builtin_adapters() -> Vec<BuiltinAdapterInfo> {
             default_model: spec.defaults.default_model.map(str::to_string),
         })
         .collect()
+}
+
+pub fn is_builtin_adapter_name(adapter: &str) -> bool {
+    adapter_spec(adapter).is_some()
 }
 
 pub fn resolve_runtime_config(
@@ -443,16 +564,7 @@ fn resolve_effective_model(adapter: &str, model: &str, api_mode: OpenAiApiMode) 
         ("openai", OpenAiApiMode::Auto) => format!("openai::{model}"),
         ("aliyun", OpenAiApiMode::Responses) => format!("openai_resp::{model}"),
         ("aliyun", _) => format!("aliyun::{model}"),
-        ("anthropic", _) => format!("anthropic::{model}"),
-        ("gemini", _) => format!("gemini::{model}"),
-        ("ollama", _) => format!("ollama::{model}"),
-        ("deepseek", _) => format!("deepseek::{model}"),
-        ("xai", _) => format!("xai::{model}"),
-        ("groq", _) => format!("groq::{model}"),
-        ("cohere", _) => format!("cohere::{model}"),
-        ("fireworks", _) => format!("fireworks::{model}"),
-        ("together", _) => format!("together::{model}"),
-        ("zai", _) => format!("zai::{model}"),
+        _ if is_builtin_adapter_name(adapter) => format!("{adapter}::{model}"),
         _ => model.to_string(),
     };
     let enforced = matches!(adapter, "openai" | "aliyun") && api_mode != OpenAiApiMode::Auto;
@@ -900,9 +1012,28 @@ mod tests {
         let list = list_builtin_adapters();
         assert!(list.iter().any(|p| p.name == "openai"));
         assert!(list.iter().any(|p| p.name == "aliyun"));
+        assert!(list.iter().any(|p| p.name == "open_router"));
+        assert!(list.iter().any(|p| p.name == "github_copilot"));
+        assert!(list.iter().any(|p| p.name == "bedrock_api"));
         assert!(list
             .iter()
             .any(|p| p.name == "aliyun" && p.aliases.iter().any(|a| a == "dashscope")));
+    }
+
+    #[test]
+    fn new_builtin_adapter_uses_namespaced_effective_model() {
+        let mut input = args();
+        input.adapter = Some("openrouter".to_string());
+        input.model = Some("openai/gpt-4.1-mini".to_string());
+
+        let resolved =
+            resolve_runtime_config(AppConfigV2::default(), &input).expect("resolve failed");
+        assert_eq!(resolved.adapter, "open_router");
+        assert_eq!(resolved.effective_model, "open_router::openai/gpt-4.1-mini");
+        assert_eq!(
+            resolved.base_url.as_deref(),
+            Some("https://openrouter.ai/api/v1/")
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! Validation is separate from resolution so we can reuse it for normal
 //! execution, `--dry-run`, and `--doctor-config`.
 
-use crate::config::resolver::ResolvedRuntimeConfig;
+use crate::config::resolver::{is_builtin_adapter_name, ResolvedRuntimeConfig};
 use crate::config::schema::{Args, OpenAiApiMode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,21 +110,7 @@ pub fn validate_resolved_config(resolved: &ResolvedRuntimeConfig, args: &Args) -
 }
 
 fn is_supported_adapter(adapter: &str) -> bool {
-    matches!(
-        adapter,
-        "openai"
-            | "aliyun"
-            | "anthropic"
-            | "gemini"
-            | "ollama"
-            | "deepseek"
-            | "xai"
-            | "groq"
-            | "cohere"
-            | "fireworks"
-            | "together"
-            | "zai"
-    )
+    is_builtin_adapter_name(adapter)
 }
 
 #[cfg(test)]
@@ -240,5 +226,15 @@ mod tests {
             .diagnostics
             .iter()
             .any(|d| d.code == "top_k_not_applied"));
+    }
+
+    #[test]
+    fn new_genai_07_adapter_is_accepted() {
+        let mut cfg = resolved();
+        cfg.adapter = "open_router".to_string();
+        cfg.effective_model = "open_router::openai/gpt-4.1".to_string();
+
+        let report = validate_resolved_config(&cfg, &args());
+        assert!(!report.has_errors());
     }
 }
