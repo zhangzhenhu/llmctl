@@ -3,7 +3,6 @@ pub struct ChatResponse {
     pub profile: String,
     pub adapter: String,
     pub requested_model: String,
-    pub effective_model: String,
     pub provider_model: String,
     pub content: Option<String>,
     pub reasoning_content: Option<String>,

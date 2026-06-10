@@ -45,16 +45,6 @@ pub(crate) fn response_metadata_lines(response: &ChatResponse) -> Vec<String> {
         ));
     }
 
-    if response.effective_model != response.requested_model
-        && response.effective_model != response.provider_model
-    {
-        lines.push(format!(
-            "{}: {}",
-            "Effective Model".dimmed(),
-            response.effective_model.dimmed()
-        ));
-    }
-
     lines
 }
 
@@ -358,7 +348,6 @@ mod tests {
             profile: "aliyun".to_string(),
             adapter: "aliyun".to_string(),
             requested_model: "aliyun::MiniMax-M2.5".to_string(),
-            effective_model: "aliyun::MiniMax-M2.5".to_string(),
             provider_model: "MiniMax-M2.5".to_string(),
             content: Some("hello".to_string()),
             reasoning_content: None,
@@ -375,27 +364,5 @@ mod tests {
         assert!(rendered.contains("Model: MiniMax-M2.5"));
         assert!(rendered.contains("Requested Model: aliyun::MiniMax-M2.5"));
         assert!(!rendered.contains("Effective Model:"));
-    }
-
-    #[test]
-    fn response_metadata_shows_effective_model_only_when_distinct() {
-        let response = ChatResponse {
-            profile: "openai_main".to_string(),
-            adapter: "openai".to_string(),
-            requested_model: "gpt-5".to_string(),
-            effective_model: "openai_resp::gpt-5".to_string(),
-            provider_model: "gpt-5-2026-05-01".to_string(),
-            content: Some("hello".to_string()),
-            reasoning_content: None,
-            duration_ms: 42,
-            input_tokens: Some(10),
-            output_tokens: Some(20),
-        };
-
-        let lines = response_metadata_lines(&response);
-        let rendered = lines.join("\n");
-
-        assert!(rendered.contains("Requested Model: gpt-5"));
-        assert!(rendered.contains("Effective Model: openai_resp::gpt-5"));
     }
 }
