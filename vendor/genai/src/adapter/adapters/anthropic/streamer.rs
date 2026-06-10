@@ -58,6 +58,11 @@ impl futures::Stream for AnthropicStreamer {
 					match message_type {
 						"message_start" => {
 							self.capture_usage(message_type, &message.data)?;
+							if let Some(model_name) =
+								extract_provider_model_name_from_message_start(&message.data)
+							{
+								self.captured_data.provider_model_name = Some(model_name);
+							}
 							continue;
 						}
 						"message_delta" => {
@@ -233,7 +238,7 @@ impl futures::Stream for AnthropicStreamer {
 								captured_tool_calls: self.captured_data.tool_calls.take(),
 								captured_thought_signatures: None,
 								captured_response_id: None,
-								captured_provider_model_name: None,
+								captured_provider_model_name: self.captured_data.provider_model_name.take(),
 							};
 
 							// TODO: Need to capture the data as needed
@@ -257,6 +262,41 @@ impl futures::Stream for AnthropicStreamer {
 			}
 		}
 		Poll::Pending
+	}
+}
+
+fn extract_provider_model_name_from_message_start(payload: &str) -> Option<String> {
+	let data: Value = serde_json::from_str(payload).ok()?;
+	let model_name = data.x_get::<String>("/message/model").ok()?;
+	(!model_name.is_empty()).then_some(model_name)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::extract_provider_model_name_from_message_start;
+
+	#[test]
+	fn message_start_extracts_provider_model_name() {
+		let payload = r#"{
+			"type":"message_start",
+			"message":{
+				"id":"msg_test",
+				"type":"message",
+				"model":"claude-sonnet-4-5-20260601",
+				"usage":{"input_tokens":12,"output_tokens":0}
+			}
+		}"#;
+
+		assert_eq!(
+			extract_provider_model_name_from_message_start(payload).as_deref(),
+			Some("claude-sonnet-4-5-20260601")
+		);
+	}
+
+	#[test]
+	fn message_start_without_model_returns_none() {
+		let payload = r#"{"type":"message_start","message":{"id":"msg_test"}}"#;
+		assert!(extract_provider_model_name_from_message_start(payload).is_none());
 	}
 }
 

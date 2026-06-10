@@ -8,6 +8,7 @@ use crate::{Error, ModelIden, Result};
 use serde_json::Value;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use value_ext::JsonValueExt;
 
 use super::GeminiChatContent;
 
@@ -47,7 +48,7 @@ impl GeminiStreamer {
 			captured_tool_calls: self.captured_data.tool_calls.take(),
 			captured_thought_signatures: self.captured_data.thought_signatures.take(),
 			captured_response_id: None,
-			captured_provider_model_name: None,
+			captured_provider_model_name: self.captured_data.provider_model_name.take(),
 		};
 		self.pending_events.push_back(InterStreamEvent::End(inter_stream_end));
 	}
@@ -104,6 +105,10 @@ impl futures::Stream for GeminiStreamer {
 								return Poll::Ready(Some(Err(err)));
 							}
 						};
+
+					if let Some(model_name) = extract_provider_model_name(&message.data) {
+						self.captured_data.provider_model_name = Some(model_name);
+					}
 
 					let GeminiChatResponse {
 						content,
@@ -216,5 +221,36 @@ impl futures::Stream for GeminiStreamer {
 			}
 		}
 		Poll::Pending
+	}
+}
+
+fn extract_provider_model_name(payload: &str) -> Option<String> {
+	let data: Value = serde_json::from_str(payload).ok()?;
+	let model_name = data.x_get::<String>("modelVersion").ok()?;
+	(!model_name.is_empty()).then_some(model_name)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::extract_provider_model_name;
+
+	#[test]
+	fn gemini_stream_extracts_model_version() {
+		let payload = r#"{
+			"candidates":[{"content":{"parts":[{"text":"hi"}],"role":"model"},"index":0}],
+			"modelVersion":"gemini-3.1-pro-preview",
+			"responseId":"resp_test"
+		}"#;
+
+		assert_eq!(
+			extract_provider_model_name(payload).as_deref(),
+			Some("gemini-3.1-pro-preview")
+		);
+	}
+
+	#[test]
+	fn gemini_stream_without_model_version_returns_none() {
+		let payload = r#"{"candidates":[{"index":0}]}"#;
+		assert!(extract_provider_model_name(payload).is_none());
 	}
 }

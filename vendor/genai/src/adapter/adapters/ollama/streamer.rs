@@ -61,6 +61,12 @@ impl futures::Stream for OllamaStreamer {
 							}
 						};
 
+						if let Ok(Some(model_name)) = data.x_take::<Option<String>>("model")
+							&& !model_name.is_empty()
+						{
+							self.captured_data.provider_model_name = Some(model_name);
+						}
+
 						// -- Handle Reasoning Content Chunk
 						// Ollama API doc mentions `thinking` field in message object.
 						// Some models (like DeepSeek) might also use `reasoning_content`.
@@ -165,7 +171,7 @@ impl futures::Stream for OllamaStreamer {
 								captured_tool_calls: self.captured_data.tool_calls.take(),
 								captured_thought_signatures: None,
 								captured_response_id: None,
-								captured_provider_model_name: None,
+								captured_provider_model_name: self.captured_data.provider_model_name.take(),
 							};
 
 							return Poll::Ready(Some(Ok(InterStreamEvent::End(inter_stream_end))));
@@ -191,7 +197,7 @@ impl futures::Stream for OllamaStreamer {
 							captured_tool_calls: self.captured_data.tool_calls.take(),
 							captured_thought_signatures: None,
 							captured_response_id: None,
-							captured_provider_model_name: None,
+							captured_provider_model_name: self.captured_data.provider_model_name.take(),
 						};
 						return Poll::Ready(Some(Ok(InterStreamEvent::End(inter_stream_end))));
 					}
@@ -201,5 +207,25 @@ impl futures::Stream for OllamaStreamer {
 		}
 
 		Poll::Pending
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use serde_json::Value;
+	use value_ext::JsonValueExt;
+
+	#[test]
+	fn ollama_stream_extracts_model_name() {
+		let mut data: Value = serde_json::from_str(
+			r#"{"model":"gemma3:4b","message":{"role":"assistant","content":"hi"},"done":false}"#,
+		)
+		.expect("valid json");
+
+		let model_name = data
+			.x_take::<Option<String>>("model")
+			.expect("extract model");
+
+		assert_eq!(model_name.as_deref(), Some("gemma3:4b"));
 	}
 }

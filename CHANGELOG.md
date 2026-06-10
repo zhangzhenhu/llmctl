@@ -12,11 +12,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Upgraded vendored `genai` to upstream `0.7.0-beta.3` and refreshed the vendored source snapshot to match the new upstream baseline.
 - Reduced the remaining local `vendor/genai` patch set to error-diagnostics and OpenAI Responses stream parse handling only, since upstream now includes the earlier `extra_body` and `usage:null` support.
 - Refined chat result metadata output to show `Profile`, `Adapter`, and the provider-returned `Model` separately, with `Requested Model` and `Effective Model` shown only when they differ.
+ - Refined chat result metadata output to show compact one-line `Profile`, `Adapter`, and provider-returned `Model` details, with `Requested Model` shown only when it differs.
 
 ### Fixed
 
 - Kept explicit `base_url` model listing on a direct `{base_url}/models` path and added a regression test so `llmctl --list` continues to avoid rust-genai issue `#217` when users target custom OpenAI-compatible endpoints.
 - Captured provider-reported model names from streaming OpenAI-compatible responses so streamed output no longer falls back to only the requested model alias.
+- Expanded streamed provider-model capture beyond OpenAI-compatible adapters to include Anthropic, Gemini, and Ollama stream responses when those backends emit model metadata.
 
 ### Docs
 

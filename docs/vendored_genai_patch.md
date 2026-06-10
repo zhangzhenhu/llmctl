@@ -76,10 +76,16 @@ Keep this list updated whenever `vendor/genai` changes.
    - `vendor/genai/src/adapter/inter_stream.rs`
    - `vendor/genai/src/chat/chat_stream.rs`
    - `vendor/genai/src/adapter/adapters/support.rs`
+   - `vendor/genai/src/adapter/adapters/anthropic/streamer.rs`
+   - `vendor/genai/src/adapter/adapters/gemini/streamer.rs`
+   - `vendor/genai/src/adapter/adapters/ollama/streamer.rs`
    - `vendor/genai/src/adapter/adapters/openai/streamer.rs`
    - `vendor/genai/src/adapter/adapters/openai_resp/streamer.rs`
    - plus `captured_provider_model_name: None` plumbing in other streamers that construct `InterStreamEnd`
    - Adds a small optional field that carries the provider-reported model name through the stream end event.
+   - Anthropic streams capture `message.model` from `message_start`.
+   - Gemini streams capture `modelVersion` from SSE payloads.
+   - Ollama ndjson streams capture `model` from each streamed JSON object.
    - OpenAI Chat Completions streams capture `model` from SSE payloads.
    - OpenAI Responses streams capture `response.model` from terminal events.
 
@@ -91,7 +97,7 @@ The current llmctl benefit is operational:
 
 - streamed provider failures include deeper cause chains in logs and surfaced errors
 - malformed or non-standard OpenAI Responses stream events can still expose provider error messages when the server returns JSON-shaped failure payloads
-- streamed responses can report the provider-returned model name, allowing llmctl to separate `Profile`, `Adapter`, `Model`, `Requested Model`, and `Effective Model` in final output
+- streamed responses can report the provider-returned model name, allowing llmctl to present compact `Profile / Adapter / Model` output while still showing `Requested Model` when the server-selected name differs
 
 ## Upgrade Checklist
 
