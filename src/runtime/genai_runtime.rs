@@ -274,10 +274,13 @@ impl GenaiRuntime {
         };
 
         Ok(ChatResponse {
-            provider: self.resolved.adapter.clone(),
+            profile: self.resolved.active_profile.clone(),
+            adapter: self.resolved.adapter.clone(),
+            requested_model: self.resolved.model.clone(),
+            effective_model: self.resolved.effective_model.clone(),
+            provider_model,
             content,
             reasoning_content,
-            model: provider_model,
             duration_ms: started_at.elapsed().as_millis() as u64,
             input_tokens,
             output_tokens,
@@ -294,7 +297,6 @@ impl GenaiRuntime {
             .with_capture_reasoning_content(self.resolved.capture_reasoning_content)
             .with_capture_usage(self.resolved.capture_usage);
         let model = self.resolved.effective_model.clone();
-        let provider = self.resolved.adapter.clone();
         let started_at = std::time::Instant::now();
 
         let mut stream_response = self
@@ -312,6 +314,7 @@ impl GenaiRuntime {
         let mut fallback_response_text: Option<String> = None;
         let mut usage_prompt_tokens: Option<u32> = None;
         let mut usage_completion_tokens: Option<u32> = None;
+        let mut provider_model = self.resolved.effective_model.clone();
 
         while let Some(event) = stream_response.stream.next().await {
             match event.map_err(map_genai_error)? {
@@ -344,6 +347,9 @@ impl GenaiRuntime {
                         usage_prompt_tokens = usage.prompt_tokens.and_then(to_u32_opt);
                         usage_completion_tokens = usage.completion_tokens.and_then(to_u32_opt);
                     }
+                    if let Some(captured_provider_model) = end.captured_provider_model_name() {
+                        provider_model = captured_provider_model.to_string();
+                    }
                     if !printed_response_content {
                         fallback_response_text = end.captured_first_text().map(ToOwned::to_owned);
                     }
@@ -371,12 +377,21 @@ impl GenaiRuntime {
         if let (Some(input), Some(output)) = (usage_prompt_tokens, usage_completion_tokens) {
             println!("{}: Input {}, Output {}", "Token".dimmed(), input, output);
         }
-        println!(
-            "{}: ({}){}",
-            "Model".green(),
-            provider.green(),
-            model.green()
-        );
+        let response = ChatResponse {
+            profile: self.resolved.active_profile.clone(),
+            adapter: self.resolved.adapter.clone(),
+            requested_model: self.resolved.model.clone(),
+            effective_model: self.resolved.effective_model.clone(),
+            provider_model,
+            content: None,
+            reasoning_content: None,
+            duration_ms: started_at.elapsed().as_millis() as u64,
+            input_tokens: usage_prompt_tokens,
+            output_tokens: usage_completion_tokens,
+        };
+        for line in crate::output::formatter::response_metadata_lines(&response) {
+            println!("{line}");
+        }
         println!(
             "{}: {} ms",
             "Duration".yellow(),
@@ -684,7 +699,10 @@ mod tests {
 
         assert!(request.starts_with("GET /v1/models HTTP/1.1"));
         assert!(request.contains("Authorization: Bearer test-key"));
-        assert_eq!(result.source.as_label(), "provider /models endpoint (explicit base_url)");
+        assert_eq!(
+            result.source.as_label(),
+            "provider /models endpoint (explicit base_url)"
+        );
         assert_eq!(result.models.len(), 1);
         assert_eq!(result.models[0].id, "custom-model");
     }

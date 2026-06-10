@@ -200,6 +200,7 @@ impl futures::Stream for OpenAIStreamer {
 							captured_tool_calls,
 							captured_thought_signatures: None,
 							captured_response_id: None,
+							captured_provider_model_name: self.captured_data.provider_model_name.take(),
 						};
 
 						return Poll::Ready(Some(Ok(InterStreamEvent::End(inter_stream_end))));
@@ -212,6 +213,12 @@ impl futures::Stream for OpenAIStreamer {
 							model_iden: self.options.model_iden.clone(),
 							serde_error,
 						})?;
+
+					if let Ok(Some(model_name)) = message_data.x_take::<Option<String>>("model")
+						&& !model_name.is_empty()
+					{
+						self.captured_data.provider_model_name = Some(model_name);
+					}
 
 					if let Some(error) = take_stream_error(&mut message_data, &self.options.model_iden) {
 						return Poll::Ready(Some(Err(error)));

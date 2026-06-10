@@ -233,6 +233,7 @@ impl futures::Stream for AnthropicStreamer {
 								captured_tool_calls: self.captured_data.tool_calls.take(),
 								captured_thought_signatures: None,
 								captured_response_id: None,
+								captured_provider_model_name: None,
 							};
 
 							// TODO: Need to capture the data as needed

@@ -121,6 +121,9 @@ pub struct StreamEnd {
 
 	/// Response ID for stateful sessions (OpenAI Responses API).
 	pub captured_response_id: Option<String>,
+
+	/// Provider-reported model name captured at stream end when available.
+	pub captured_provider_model_name: Option<String>,
 }
 
 impl From<InterStreamEnd> for StreamEnd {
@@ -179,6 +182,7 @@ impl From<InterStreamEnd> for StreamEnd {
 			captured_content,
 			captured_reasoning_content: inter_end.captured_reasoning_content,
 			captured_response_id: inter_end.captured_response_id,
+			captured_provider_model_name: inter_end.captured_provider_model_name,
 		}
 	}
 }
@@ -190,6 +194,11 @@ impl StreamEnd {
 	pub fn captured_first_text(&self) -> Option<&str> {
 		let captured_content = self.captured_content.as_ref()?;
 		captured_content.first_text()
+	}
+
+	/// Returns the provider-reported model name captured at stream end, if any.
+	pub fn captured_provider_model_name(&self) -> Option<&str> {
+		self.captured_provider_model_name.as_deref()
 	}
 
 	/// Consumes `self` and returns the first captured text, if any.

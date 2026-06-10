@@ -29,6 +29,9 @@ pub struct InterStreamEnd {
 
 	// Response ID for stateful sessions (OpenAI Responses API).
 	pub captured_response_id: Option<String>,
+
+	// Provider-reported model name captured at stream end when available.
+	pub captured_provider_model_name: Option<String>,
 }
 
 /// Intermediary StreamEvent

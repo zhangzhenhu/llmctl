@@ -1,9 +1,12 @@
 #[derive(Debug, Clone)]
 pub struct ChatResponse {
-    pub provider: String,
+    pub profile: String,
+    pub adapter: String,
+    pub requested_model: String,
+    pub effective_model: String,
+    pub provider_model: String,
     pub content: Option<String>,
     pub reasoning_content: Option<String>,
-    pub model: String,
     pub duration_ms: u64,
     pub input_tokens: Option<u32>,
     pub output_tokens: Option<u32>,

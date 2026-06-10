@@ -47,6 +47,7 @@ impl GeminiStreamer {
 			captured_tool_calls: self.captured_data.tool_calls.take(),
 			captured_thought_signatures: self.captured_data.thought_signatures.take(),
 			captured_response_id: None,
+			captured_provider_model_name: None,
 		};
 		self.pending_events.push_back(InterStreamEvent::End(inter_stream_end));
 	}

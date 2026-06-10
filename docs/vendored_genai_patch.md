@@ -26,6 +26,10 @@ The patch file for the remaining local changes is stored at:
 
 - [genai-v0.7.0-beta.3-llmctl.patch](/Users/test/Documents/projects/llm_probe/patches/genai-v0.7.0-beta.3-llmctl.patch)
 
+The stream provider-model patch is also split out as a standalone upstream-candidate patch at:
+
+- [genai-v0.7.0-beta.3-stream-provider-model.patch](/Users/test/Documents/projects/llm_probe/patches/genai-v0.7.0-beta.3-stream-provider-model.patch)
+
 The comparison audit used for this upgrade is recorded at:
 
 - [genai_upstream_audit_2026-06-10.md](/Users/test/Documents/projects/llm_probe/docs/genai_upstream_audit_2026-06-10.md)
@@ -45,6 +49,7 @@ The remaining vendored patch is now only for error diagnostics and one Responses
 
 1. Preserve full chained causes in streamed adapter/web errors.
 2. Surface provider JSON error messages during OpenAI Responses stream parse failures instead of silently warning-and-skipping the bad event.
+3. Capture the provider-reported model name at stream end so downstream callers can display the actual server-selected model instead of only the requested model alias.
 
 ## Patch Inventory
 
@@ -67,6 +72,17 @@ Keep this list updated whenever `vendor/genai` changes.
    - Adds `extract_provider_error_message(...)`.
    - When a Responses SSE event cannot be deserialized, tries to extract provider-side JSON error details and surface them as `Error::StreamParse`.
 
+4. Stream end provider-model capture
+   - `vendor/genai/src/adapter/inter_stream.rs`
+   - `vendor/genai/src/chat/chat_stream.rs`
+   - `vendor/genai/src/adapter/adapters/support.rs`
+   - `vendor/genai/src/adapter/adapters/openai/streamer.rs`
+   - `vendor/genai/src/adapter/adapters/openai_resp/streamer.rs`
+   - plus `captured_provider_model_name: None` plumbing in other streamers that construct `InterStreamEnd`
+   - Adds a small optional field that carries the provider-reported model name through the stream end event.
+   - OpenAI Chat Completions streams capture `model` from SSE payloads.
+   - OpenAI Responses streams capture `response.model` from terminal events.
+
 ## llmctl Behavior Depending On This Patch
 
 The patch no longer exists for request-body passthrough or `usage:null`; upstream covers those now.
@@ -75,6 +91,7 @@ The current llmctl benefit is operational:
 
 - streamed provider failures include deeper cause chains in logs and surfaced errors
 - malformed or non-standard OpenAI Responses stream events can still expose provider error messages when the server returns JSON-shaped failure payloads
+- streamed responses can report the provider-returned model name, allowing llmctl to separate `Profile`, `Adapter`, `Model`, `Requested Model`, and `Effective Model` in final output
 
 ## Upgrade Checklist
 

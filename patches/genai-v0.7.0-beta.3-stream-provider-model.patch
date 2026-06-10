@@ -1,6 +1,6 @@
-diff --git a/upstream/src/adapter/adapters/anthropic/streamer.rs b/vendor/genai/src/adapter/adapters/anthropic/streamer.rs
+diff --git a/vendor/genai/src/adapter/adapters/anthropic/streamer.rs b/vendor/genai/src/adapter/adapters/anthropic/streamer.rs
 index 0d13320..88f3a9d 100644
---- a/upstream/src/adapter/adapters/anthropic/streamer.rs
+--- a/vendor/genai/src/adapter/adapters/anthropic/streamer.rs
 +++ b/vendor/genai/src/adapter/adapters/anthropic/streamer.rs
 @@ -233,6 +233,7 @@ impl futures::Stream for AnthropicStreamer {
  								captured_tool_calls: self.captured_data.tool_calls.take(),
@@ -10,9 +10,9 @@ index 0d13320..88f3a9d 100644
  							};
  
  							// TODO: Need to capture the data as needed
-diff --git a/upstream/src/adapter/adapters/bedrock/streamer.rs b/vendor/genai/src/adapter/adapters/bedrock/streamer.rs
+diff --git a/vendor/genai/src/adapter/adapters/bedrock/streamer.rs b/vendor/genai/src/adapter/adapters/bedrock/streamer.rs
 index f4484cc..0fe3345 100644
---- a/upstream/src/adapter/adapters/bedrock/streamer.rs
+--- a/vendor/genai/src/adapter/adapters/bedrock/streamer.rs
 +++ b/vendor/genai/src/adapter/adapters/bedrock/streamer.rs
 @@ -256,6 +256,7 @@ impl BedrockStreamer {
  			captured_tool_calls: self.captured_data.tool_calls.take(),
@@ -22,9 +22,9 @@ index f4484cc..0fe3345 100644
  		};
  		InterStreamEvent::End(end)
  	}
-diff --git a/upstream/src/adapter/adapters/cohere/streamer.rs b/vendor/genai/src/adapter/adapters/cohere/streamer.rs
+diff --git a/vendor/genai/src/adapter/adapters/cohere/streamer.rs b/vendor/genai/src/adapter/adapters/cohere/streamer.rs
 index f801146..0cceeeb 100644
---- a/upstream/src/adapter/adapters/cohere/streamer.rs
+--- a/vendor/genai/src/adapter/adapters/cohere/streamer.rs
 +++ b/vendor/genai/src/adapter/adapters/cohere/streamer.rs
 @@ -120,6 +120,7 @@ impl futures::Stream for CohereStreamer {
  										captured_tool_calls: self.captured_data.tool_calls.take(),
@@ -34,9 +34,9 @@ index f801146..0cceeeb 100644
  									};
  
  									InterStreamEvent::End(inter_stream_end)
-diff --git a/upstream/src/adapter/adapters/gemini/streamer.rs b/vendor/genai/src/adapter/adapters/gemini/streamer.rs
+diff --git a/vendor/genai/src/adapter/adapters/gemini/streamer.rs b/vendor/genai/src/adapter/adapters/gemini/streamer.rs
 index 0a9a1c9..4725de9 100644
---- a/upstream/src/adapter/adapters/gemini/streamer.rs
+--- a/vendor/genai/src/adapter/adapters/gemini/streamer.rs
 +++ b/vendor/genai/src/adapter/adapters/gemini/streamer.rs
 @@ -47,6 +47,7 @@ impl GeminiStreamer {
  			captured_tool_calls: self.captured_data.tool_calls.take(),
@@ -46,9 +46,9 @@ index 0a9a1c9..4725de9 100644
  		};
  		self.pending_events.push_back(InterStreamEvent::End(inter_stream_end));
  	}
-diff --git a/upstream/src/adapter/adapters/ollama/streamer.rs b/vendor/genai/src/adapter/adapters/ollama/streamer.rs
+diff --git a/vendor/genai/src/adapter/adapters/ollama/streamer.rs b/vendor/genai/src/adapter/adapters/ollama/streamer.rs
 index 05b9bfe..5bc0035 100644
---- a/upstream/src/adapter/adapters/ollama/streamer.rs
+--- a/vendor/genai/src/adapter/adapters/ollama/streamer.rs
 +++ b/vendor/genai/src/adapter/adapters/ollama/streamer.rs
 @@ -165,6 +165,7 @@ impl futures::Stream for OllamaStreamer {
  								captured_tool_calls: self.captured_data.tool_calls.take(),
@@ -66,9 +66,9 @@ index 05b9bfe..5bc0035 100644
  						};
  						return Poll::Ready(Some(Ok(InterStreamEvent::End(inter_stream_end))));
  					}
-diff --git a/upstream/src/adapter/adapters/openai/streamer.rs b/vendor/genai/src/adapter/adapters/openai/streamer.rs
+diff --git a/vendor/genai/src/adapter/adapters/openai/streamer.rs b/vendor/genai/src/adapter/adapters/openai/streamer.rs
 index eb07921..fcc2dd2 100644
---- a/upstream/src/adapter/adapters/openai/streamer.rs
+--- a/vendor/genai/src/adapter/adapters/openai/streamer.rs
 +++ b/vendor/genai/src/adapter/adapters/openai/streamer.rs
 @@ -200,6 +200,7 @@ impl futures::Stream for OpenAIStreamer {
  							captured_tool_calls,
@@ -91,9 +91,9 @@ index eb07921..fcc2dd2 100644
  					if let Some(error) = take_stream_error(&mut message_data, &self.options.model_iden) {
  						return Poll::Ready(Some(Err(error)));
  					}
-diff --git a/upstream/src/adapter/adapters/openai_resp/streamer.rs b/vendor/genai/src/adapter/adapters/openai_resp/streamer.rs
+diff --git a/vendor/genai/src/adapter/adapters/openai_resp/streamer.rs b/vendor/genai/src/adapter/adapters/openai_resp/streamer.rs
 index 9fd0b80..f1e6982 100644
---- a/upstream/src/adapter/adapters/openai_resp/streamer.rs
+--- a/vendor/genai/src/adapter/adapters/openai_resp/streamer.rs
 +++ b/vendor/genai/src/adapter/adapters/openai_resp/streamer.rs
 @@ -320,6 +320,7 @@ impl futures::Stream for OpenAIRespStreamer {
  								captured_tool_calls: self.captured_data.tool_calls.take(),
@@ -119,9 +119,9 @@ index 9fd0b80..f1e6982 100644
  						};
  						return Poll::Ready(Some(Ok(InterStreamEvent::End(inter_stream_end))));
  					}
-diff --git a/upstream/src/adapter/adapters/support.rs b/vendor/genai/src/adapter/adapters/support.rs
+diff --git a/vendor/genai/src/adapter/adapters/support.rs b/vendor/genai/src/adapter/adapters/support.rs
 index eec55a7..6119d08 100644
---- a/upstream/src/adapter/adapters/support.rs
+--- a/vendor/genai/src/adapter/adapters/support.rs
 +++ b/vendor/genai/src/adapter/adapters/support.rs
 @@ -48,6 +48,7 @@ pub struct StreamerCapturedData {
  	pub reasoning_content: Option<String>,
@@ -131,9 +131,9 @@ index eec55a7..6119d08 100644
  }
  
  // endregion: --- Streamer Captured Data
-diff --git a/upstream/src/adapter/inter_stream.rs b/vendor/genai/src/adapter/inter_stream.rs
+diff --git a/vendor/genai/src/adapter/inter_stream.rs b/vendor/genai/src/adapter/inter_stream.rs
 index 6b03a99..ef948f3 100644
---- a/upstream/src/adapter/inter_stream.rs
+--- a/vendor/genai/src/adapter/inter_stream.rs
 +++ b/vendor/genai/src/adapter/inter_stream.rs
 @@ -29,6 +29,9 @@ pub struct InterStreamEnd {
  
@@ -145,9 +145,9 @@ index 6b03a99..ef948f3 100644
  }
  
  /// Intermediary StreamEvent
-diff --git a/upstream/src/chat/chat_stream.rs b/vendor/genai/src/chat/chat_stream.rs
+diff --git a/vendor/genai/src/chat/chat_stream.rs b/vendor/genai/src/chat/chat_stream.rs
 index 5468009..bff9ceb 100644
---- a/upstream/src/chat/chat_stream.rs
+--- a/vendor/genai/src/chat/chat_stream.rs
 +++ b/vendor/genai/src/chat/chat_stream.rs
 @@ -121,6 +121,9 @@ pub struct StreamEnd {
  

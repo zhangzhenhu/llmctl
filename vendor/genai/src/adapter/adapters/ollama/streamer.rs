@@ -165,6 +165,7 @@ impl futures::Stream for OllamaStreamer {
 								captured_tool_calls: self.captured_data.tool_calls.take(),
 								captured_thought_signatures: None,
 								captured_response_id: None,
+								captured_provider_model_name: None,
 							};
 
 							return Poll::Ready(Some(Ok(InterStreamEvent::End(inter_stream_end))));
@@ -190,6 +191,7 @@ impl futures::Stream for OllamaStreamer {
 							captured_tool_calls: self.captured_data.tool_calls.take(),
 							captured_thought_signatures: None,
 							captured_response_id: None,
+							captured_provider_model_name: None,
 						};
 						return Poll::Ready(Some(Ok(InterStreamEvent::End(inter_stream_end))));
 					}
