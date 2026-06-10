@@ -406,6 +406,12 @@ pub fn resolve_runtime_config(
             content: msg.clone(),
         });
     }
+    if !args.prompt.is_empty() {
+        context.push(Message {
+            role: "user".to_string(),
+            content: args.prompt.join(" "),
+        });
+    }
     let (context, system) = split_system_messages(context, None);
 
     let requested_reasoning = args
@@ -793,6 +799,7 @@ mod tests {
             list: false,
             list_adapters: false,
             message: Vec::new(),
+            prompt: Vec::new(),
             adapter: None,
             profile: None,
             base_url: None,
@@ -842,13 +849,16 @@ mod tests {
         input.model = Some("gpt-5".to_string());
         input.stream = true;
         input.message = vec!["from-cli".to_string()];
+        input.prompt = vec!["tail".to_string(), "prompt".to_string()];
         input.api_mode = Some(OpenAiApiMode::Responses);
 
         let resolved = resolve_runtime_config(app, &input).expect("resolve failed");
         assert_eq!(resolved.model, "gpt-5");
         assert_eq!(resolved.effective_model, "openai_resp::gpt-5");
         assert!(resolved.stream);
-        assert_eq!(resolved.context.len(), 2);
+        assert_eq!(resolved.context.len(), 3);
+        assert_eq!(resolved.context[1].content, "from-cli");
+        assert_eq!(resolved.context[2].content, "tail prompt");
         assert_eq!(resolved.api_mode, OpenAiApiMode::Responses);
         assert!(resolved.api_mode_enforced);
     }

@@ -7,12 +7,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-06-10
+
+### Added
+
+- Added anonymous CLI message input, so `llmctl "hello"` works as a shortcut for a single user message without repeating `--message`.
+
 ### Changed
 
 - Upgraded vendored `genai` to upstream `0.7.0-beta.3` and refreshed the vendored source snapshot to match the new upstream baseline.
-- Reduced the remaining local `vendor/genai` patch set to error-diagnostics and OpenAI Responses stream parse handling only, since upstream now includes the earlier `extra_body` and `usage:null` support.
-- Refined chat result metadata output to show `Profile`, `Adapter`, and the provider-returned `Model` separately, with `Requested Model` and `Effective Model` shown only when they differ.
- - Refined chat result metadata output to show compact one-line `Profile`, `Adapter`, and provider-returned `Model` details, with `Requested Model` shown only when it differs.
+- Reduced the remaining local `vendor/genai` patch set to focused `error-diagnostics` and `stream-provider-model` artifacts, since upstream now includes the earlier `extra_body` and `usage:null` support.
+- Refined chat result metadata output to show compact one-line `Profile`, `Adapter`, and provider-returned `Model` details, with `Requested Model` shown only when it differs.
 - Expanded `llmctl` built-in adapter coverage and user-facing adapter docs/templates to align with the vendored `genai 0.7` adapter set, including new gateway and provider presets such as `open_router`, `github_copilot`, `bedrock_api`, `moonshot`, `baidu`, and `bigmodel`.
 
 ### Fixed
@@ -23,7 +28,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Docs
 
-- Added an upstream audit note for the `genai` upgrade and rewrote the vendored patch documentation around the new `0.7.0-beta.3` baseline and residual patch file.
+- Added an upstream audit note for the `genai` upgrade and rewrote the vendored patch documentation around the new `0.7.0-beta.3` baseline and the split residual patch files.
 - Documented the remaining vendored `genai` stream model-name patch so it can be proposed upstream as an isolated PR.
 
 ## [2.1.0] - 2026-05-08

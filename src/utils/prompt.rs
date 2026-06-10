@@ -36,6 +36,7 @@ pub fn init_config_file(path: &Path, format: &str) -> Result<(), String> {
 const DEFAULT_CONFIG_YAML: &str = r#"# llmctl v2 config
 #
 # Quick usage:
+#   llmctl "hello"
 #   llmctl -c llmctl.yaml --message "hello"
 #   llmctl -c llmctl.yaml --profile openai_main --message "hello"
 #   llmctl --list-adapters
@@ -102,7 +103,7 @@ profiles:
   #   # then set reasoning only when the selected model supports it.
   #   # reasoning: auto
 
-# Shared context messages (appended before CLI --message)
+# Shared context messages (appended before CLI --message / anonymous MESSAGE)
 context:
   - role: system
     content: You are a helpful assistant.

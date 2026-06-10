@@ -2,12 +2,11 @@
 
 A CLI tool for testing and validating LLM (Large Language Model) services. Supports multiple providers including OpenAI, Gemini, Claude, Ollama, DeepSeek, and any OpenAI-compatible APIs.
 
-## What's New in v2.1.0
+## What's New in v2.2.0
 
-- Unified CLI/config naming around `adapter`, `profile`, `base_url`, and `api_mode`
-- Added `--list-adapters` plus richer built-in adapter defaults and aliases
-- Added explicit proxy control with `--no-proxy`, `defaults.no_proxy`, and `profiles.<name>.no_proxy`
-- Simplified the runtime to the current genai-based path and updated the docs accordingly
+- Expanded built-in adapter coverage to match the vendored `genai 0.7` adapter set more closely
+- Added anonymous CLI message input so `llmctl "hello"` works without repeating `--message`
+- Split the remaining vendored `genai` patches into focused `error-diagnostics` and `stream-provider-model` artifacts
 
 ## Features
 
@@ -119,7 +118,7 @@ llmctl -c llm.yaml
 ### Command-Line Options
 
 ```bash
-llmctl [OPTIONS]
+llmctl [OPTIONS] [MESSAGE...]
 
 Options:
   -c, --config <PATH>          Config file path (v2 YAML or JSON)
@@ -127,6 +126,7 @@ Options:
   -l, --list                   List available models
       --list-adapters          List supported adapters, aliases, and built-in defaults
       --message <STRING>       Append user message (repeatable)
+      [MESSAGE]...             Anonymous user message shortcut; remaining words are joined into one message
   -p, --adapter <STRING>       Adapter name or alias
   -P, --profile <NAME>         Profile name from config (v2)
   -u, --base-url <STRING>      API base URL
@@ -180,6 +180,9 @@ cargo test --test cli_dry_run_cases -- --nocapture
 #### Quick Start Without Config File
 
 ```bash
+# Anonymous message shortcut
+llmctl "hello"
+
 # Show supported adapters and aliases
 llmctl --list-adapters
 

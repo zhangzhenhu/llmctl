@@ -22,13 +22,12 @@ The vendored copy now tracks upstream:
 - tag: `v0.7.0-beta.3`
 - commit: `fa82095877eb548b22c27ecef38b7bcf7c512299`
 
-The patch file for the remaining local changes is stored at:
+The remaining local changes are kept as two focused patch files:
 
-- [genai-v0.7.0-beta.3-llmctl.patch](/Users/test/Documents/projects/llm_probe/patches/genai-v0.7.0-beta.3-llmctl.patch)
-
-The stream provider-model patch is also split out as a standalone upstream-candidate patch at:
-
+- [genai-v0.7.0-beta.3-error-diagnostics.patch](/Users/test/Documents/projects/llm_probe/patches/genai-v0.7.0-beta.3-error-diagnostics.patch)
 - [genai-v0.7.0-beta.3-stream-provider-model.patch](/Users/test/Documents/projects/llm_probe/patches/genai-v0.7.0-beta.3-stream-provider-model.patch)
+
+Both patch files are normalized to upstream-style `src/...` paths so they can be reviewed or proposed upstream more easily.
 
 The comparison audit used for this upgrade is recorded at:
 
@@ -45,7 +44,7 @@ Upstream `v0.7.0-beta.3` already includes the earlier llmctl-required runtime fe
 
 So those earlier functional patches are no longer carried locally.
 
-The remaining vendored patch is now only for error diagnostics and one Responses stream edge case:
+The remaining vendored differences are now split into two focused areas:
 
 1. Preserve full chained causes in streamed adapter/web errors.
 2. Surface provider JSON error messages during OpenAI Responses stream parse failures instead of silently warning-and-skipping the bad event.
@@ -55,11 +54,14 @@ The remaining vendored patch is now only for error diagnostics and one Responses
 
 Keep this list updated whenever `vendor/genai` changes.
 
-1. `vendor/genai/src/error.rs`
+1. `genai-v0.7.0-beta.3-error-diagnostics.patch`
+   - Focused patch for chained error reporting and OpenAI Responses stream parse diagnostics.
+
+2. `vendor/genai/src/error.rs`
    - Adds `format_error_chain(...)`.
    - Renders nested error causes into a stable multi-line string.
 
-2. Streamer error-chain formatting
+3. Streamer error-chain formatting
    - `vendor/genai/src/adapter/adapters/anthropic/streamer.rs`
    - `vendor/genai/src/adapter/adapters/cohere/streamer.rs`
    - `vendor/genai/src/adapter/adapters/gemini/streamer.rs`
@@ -68,11 +70,14 @@ Keep this list updated whenever `vendor/genai` changes.
    - `vendor/genai/src/adapter/adapters/openai_resp/streamer.rs`
    - Replaces plain `err.to_string()` with formatted chained causes in `Error::WebStream`.
 
-3. `vendor/genai/src/adapter/adapters/openai_resp/streamer.rs`
+4. `vendor/genai/src/adapter/adapters/openai_resp/streamer.rs`
    - Adds `extract_provider_error_message(...)`.
    - When a Responses SSE event cannot be deserialized, tries to extract provider-side JSON error details and surface them as `Error::StreamParse`.
 
-4. Stream end provider-model capture
+5. `genai-v0.7.0-beta.3-stream-provider-model.patch`
+   - Focused upstream-candidate patch for carrying provider-reported model names through streaming end events.
+
+6. Stream end provider-model capture
    - `vendor/genai/src/adapter/inter_stream.rs`
    - `vendor/genai/src/chat/chat_stream.rs`
    - `vendor/genai/src/adapter/adapters/support.rs`
@@ -106,8 +111,8 @@ When upgrading genai again:
 1. Re-check whether upstream has native equivalents for:
    - chained-cause stream error rendering
    - Responses provider-error extraction on stream parse failure
-2. If upstream supports both, remove `[patch.crates-io]`, delete `vendor/genai`, and delete the patch file.
-3. If upstream supports only part of the inventory, regenerate the remaining patch file from the new upstream tag.
+2. If upstream supports both areas, remove `[patch.crates-io]`, delete `vendor/genai`, and delete both focused patch files.
+3. If upstream supports only part of the inventory, regenerate only the still-needed focused patch file(s) from the new upstream tag.
 4. Run:
 
 ```bash
@@ -120,12 +125,17 @@ cargo build --release
 
 5. Run at least one real streamed smoke test on an OpenAI-compatible provider that can emit non-trivial stream failures.
 
-## Regenerating The Patch File
+## Regenerating The Patch Files
 
 Assuming clean upstream source is available in `/tmp/rust-genai-upstream`:
 
 ```bash
-diff -ru /tmp/rust-genai-upstream vendor/genai > patches/genai-v<version>-llmctl.patch
+diff -ru /tmp/rust-genai-upstream vendor/genai > /tmp/genai-full.patch
 ```
 
-The patch file should stay focused. If it starts growing beyond the inventory above, run a fresh upstream audit before carrying more local changes forward.
+From that full diff, split the result into focused artifacts:
+
+- `patches/genai-v<version>-error-diagnostics.patch`
+- `patches/genai-v<version>-stream-provider-model.patch`
+
+Each patch file should stay focused. If either starts growing beyond the inventory above, run a fresh upstream audit before carrying more local changes forward.

@@ -127,6 +127,7 @@ mod tests {
             list: false,
             list_adapters: false,
             message: Vec::new(),
+            prompt: Vec::new(),
             adapter: None,
             profile: None,
             base_url: None,

@@ -2,12 +2,11 @@
 
 LLM 服务验证 CLI 工具，用于测试和验证各种大语言模型服务。支持 OpenAI、Gemini、Claude、Ollama、DeepSeek 等多种服务商，并兼容任何实现了 OpenAI API 格式的服务。
 
-## 2.1.0 更新
+## 2.2.0 更新
 
-- 统一 CLI/配置命名为 `adapter`、`profile`、`base_url`、`api_mode`
-- 新增 `--list-adapters`，并补全内置 adapter 默认值与别名说明
-- 新增显式代理控制：`--no-proxy`、`defaults.no_proxy`、`profiles.<name>.no_proxy`
-- 运行时收敛到当前 genai 主路径，文档也同步到最新架构
+- 扩展内置 adapter 支持范围，使其更贴近 vendored `genai 0.7` 的 adapter 集合
+- 新增匿名消息快捷输入，支持直接使用 `llmctl "hello"`，无需反复写 `--message`
+- 将剩余的 vendored `genai` patch 拆分为更聚焦的 `error-diagnostics` 和 `stream-provider-model` 两个补丁文件
 
 ## 功能特性
 
@@ -119,7 +118,7 @@ llmctl -c llm.yaml
 ### 命令行选项
 
 ```bash
-llmctl [选项]
+llmctl [选项] [MESSAGE...]
 
 选项:
   -c, --config <路径>          配置文件路径（仅支持 v2 YAML/JSON）
@@ -127,6 +126,7 @@ llmctl [选项]
   -l, --list                   列出可用模型
       --list-adapters          列出支持的 adapter、别名和内置默认值
       --message <字符串>       追加用户消息（可重复）
+      [MESSAGE]...             匿名消息快捷输入；剩余单词会自动拼成一条消息
   -p, --adapter <字符串>       adapter 名称或别名
   -P, --profile <名称>         使用配置文件中的 profile 名称（v2）
   -u, --base-url <字符串>      API 基础地址
@@ -180,6 +180,9 @@ cargo test --test cli_dry_run_cases -- --nocapture
 #### 无配置文件快速启动
 
 ```bash
+# 匿名消息快捷输入
+llmctl "hello"
+
 # OpenAI 快速启动（读取 OPENAI_API_KEY）
 llmctl --adapter openai --message "hello"
 

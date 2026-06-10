@@ -118,6 +118,12 @@ pub struct Args {
     pub message: Vec<String>,
 
     #[arg(
+        value_name = "MESSAGE",
+        help = "Anonymous user message shortcut; remaining words are joined into one message"
+    )]
+    pub prompt: Vec<String>,
+
+    #[arg(
         short = 'p',
         long,
         value_name = "STRING",
@@ -276,6 +282,22 @@ context:
             args.convert,
             Some(vec![PathBuf::from("in.yaml"), PathBuf::from("out.json")])
         );
+    }
+
+    #[test]
+    fn parses_anonymous_message_shortcut() {
+        let args = Args::try_parse_from(["llmctl", "hello", "world"])
+            .expect("positional prompt should parse");
+        assert_eq!(args.prompt, vec!["hello".to_string(), "world".to_string()]);
+        assert!(args.message.is_empty());
+    }
+
+    #[test]
+    fn parses_named_and_anonymous_messages_together() {
+        let args = Args::try_parse_from(["llmctl", "--message", "first", "second", "third"])
+            .expect("mixed prompt input should parse");
+        assert_eq!(args.message, vec!["first".to_string()]);
+        assert_eq!(args.prompt, vec!["second".to_string(), "third".to_string()]);
     }
 
     #[test]
