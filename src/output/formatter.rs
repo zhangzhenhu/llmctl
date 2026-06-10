@@ -31,11 +31,15 @@ pub fn format_chat_response(response: &ChatResponse) {
 }
 
 pub(crate) fn response_metadata_lines(response: &ChatResponse) -> Vec<String> {
-    let mut lines = vec![
-        format!("{}: {}", "Profile".blue(), response.profile.blue()),
-        format!("{}: {}", "Adapter".cyan(), response.adapter.cyan()),
-        format!("{}: {}", "Model".green(), response.provider_model.green()),
-    ];
+    let mut lines = vec![format!(
+        "{}: {}  {}: {}  {}: {}",
+        "Profile".blue(),
+        response.profile.blue(),
+        "Adapter".cyan(),
+        response.adapter.cyan(),
+        "Model".green(),
+        response.provider_model.green()
+    )];
 
     if response.provider_model != response.requested_model {
         lines.push(format!(
@@ -343,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn response_metadata_separates_profile_adapter_and_provider_model() {
+    fn response_metadata_keeps_profile_adapter_and_model_on_one_line() {
         let response = ChatResponse {
             profile: "aliyun".to_string(),
             adapter: "aliyun".to_string(),
@@ -359,10 +363,10 @@ mod tests {
         let lines = response_metadata_lines(&response);
         let rendered = lines.join("\n");
 
-        assert!(rendered.contains("Profile: aliyun"));
-        assert!(rendered.contains("Adapter: aliyun"));
-        assert!(rendered.contains("Model: MiniMax-M2.5"));
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("Profile: aliyun"));
+        assert!(lines[0].contains("Adapter: aliyun"));
+        assert!(lines[0].contains("Model: MiniMax-M2.5"));
         assert!(rendered.contains("Requested Model: aliyun::MiniMax-M2.5"));
-        assert!(!rendered.contains("Effective Model:"));
     }
 }
