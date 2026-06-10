@@ -22,7 +22,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
-- Kept explicit `base_url` model listing on a direct `{base_url}/models` path and added a regression test so `llmctl --list` continues to avoid rust-genai issue `#217` when users target custom OpenAI-compatible endpoints.
+- Switched `llmctl --list` to prefer `genai::Client::all_model_names(...)`, including explicit `base_url` overrides passed through provider config, and kept a regression test for custom OpenAI-compatible endpoints.
 - Captured provider-reported model names from streaming OpenAI-compatible responses so streamed output no longer falls back to only the requested model alias.
 - Expanded streamed provider-model capture beyond OpenAI-compatible adapters to include Anthropic, Gemini, and Ollama stream responses when those backends emit model metadata.
 

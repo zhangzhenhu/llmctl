@@ -10,22 +10,19 @@ use crate::provider::{ChatResponse, ModelInfo};
 use futures::StreamExt;
 use genai::adapter::AdapterKind;
 use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ReasoningEffort};
-use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
+use genai::resolver::{AuthData, Endpoint, ProviderConfig, ServiceTargetResolver};
 use genai::{Client, ServiceTarget};
-use serde::Deserialize;
 
 pub enum ModelListSource {
     ExplicitBaseUrl,
-    LiveProviderEndpoint,
-    StaticCatalog,
+    GenaiClient,
 }
 
 impl ModelListSource {
     pub fn as_label(&self) -> &'static str {
         match self {
-            Self::ExplicitBaseUrl => "provider /models endpoint (explicit base_url)",
-            Self::LiveProviderEndpoint => "provider /models endpoint",
-            Self::StaticCatalog => "genai static catalog fallback",
+            Self::ExplicitBaseUrl => "genai client (explicit base_url)",
+            Self::GenaiClient => "genai client",
         }
     }
 }
@@ -37,7 +34,6 @@ pub struct ModelListResult {
 
 pub struct GenaiRuntime {
     client: Client,
-    http_client: reqwest::Client,
     resolved: ResolvedRuntimeConfig,
 }
 
@@ -103,39 +99,27 @@ impl GenaiRuntime {
 
         Ok(Self {
             client: builder.build(),
-            http_client,
             resolved,
         })
     }
 
     pub async fn list_models(&self) -> Result<ModelListResult, LlmProbeError> {
-        if self.resolved.base_url.is_some() {
-            // Keep explicit base_url listing on a direct /models request path.
-            // This deliberately avoids relying on genai's Client::all_model_names
-            // resolver semantics for custom endpoints (see rust-genai issue #217).
-            return self.list_models_from_base_url().await;
-        }
-
-        if let Some(live_models) = self.try_list_models_live().await? {
-            return Ok(ModelListResult {
-                models: live_models,
-                source: ModelListSource::LiveProviderEndpoint,
-            });
-        }
-
+        let source = if self.resolved.base_url.is_some() {
+            ModelListSource::ExplicitBaseUrl
+        } else {
+            ModelListSource::GenaiClient
+        };
         let models = self.list_models_via_client().await?;
-        Ok(ModelListResult {
-            models,
-            source: ModelListSource::StaticCatalog,
-        })
+        Ok(ModelListResult { models, source })
     }
 
     async fn list_models_via_client(&self) -> Result<Vec<ModelInfo>, LlmProbeError> {
         let kind = adapter_kind_for(&self.resolved)
             .ok_or_else(|| LlmProbeError::UnsupportedProvider(self.resolved.adapter.clone()))?;
+        let provider_config = model_list_provider_config(&self.resolved);
         let model_names = self
             .client
-            .all_model_names(kind, ())
+            .all_model_names(kind, provider_config)
             .await
             .map_err(map_genai_error)?;
         let provider = self.resolved.adapter.clone();
@@ -148,106 +132,6 @@ impl GenaiRuntime {
                 provider: provider.clone(),
             })
             .collect())
-    }
-
-    async fn list_models_from_base_url(&self) -> Result<ModelListResult, LlmProbeError> {
-        let base_url = self
-            .resolved
-            .base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                LlmProbeError::ApiError(
-                    "base_url is required for explicit model listing".to_string(),
-                )
-            })?;
-        let url = format!("{}/models", base_url.trim_end_matches('/'));
-        let mut request = self.http_client.get(&url);
-
-        if !self.resolved.api_key.is_empty() {
-            request = request.bearer_auth(&self.resolved.api_key);
-        }
-
-        let response = request.send().await.map_err(|err| {
-            LlmProbeError::ApiError(format!("Model list request failed for {url}: {err}"))
-        })?;
-        let status = response.status();
-        if !status.is_success() {
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "<unavailable>".to_string());
-            return Err(LlmProbeError::ApiError(format!(
-                "Model list request failed for {url}: HTTP {status}. Response body:\n{body}"
-            )));
-        }
-
-        let payload = response
-            .json::<OpenAiModelsResponse>()
-            .await
-            .map_err(|err| {
-                LlmProbeError::ApiError(format!(
-                    "Failed to parse model list response from {url}: {err}"
-                ))
-            })?;
-        let provider = self.resolved.adapter.clone();
-
-        Ok(ModelListResult {
-            models: payload
-                .data
-                .into_iter()
-                .map(|item| ModelInfo {
-                    id: item.id.clone(),
-                    name: item.id,
-                    provider: provider.clone(),
-                })
-                .collect(),
-            source: ModelListSource::ExplicitBaseUrl,
-        })
-    }
-
-    async fn try_list_models_live(&self) -> Result<Option<Vec<ModelInfo>>, LlmProbeError> {
-        if !supports_live_models_endpoint(&self.resolved.adapter) {
-            return Ok(None);
-        }
-
-        let Some(base_url) = models_base_url_for(&self.resolved) else {
-            return Ok(None);
-        };
-        let url = format!("{}/models", base_url.trim_end_matches('/'));
-        let mut request = self.http_client.get(url);
-
-        if !self.resolved.api_key.is_empty() {
-            request = request.bearer_auth(&self.resolved.api_key);
-        }
-
-        let response = match request.send().await {
-            Ok(resp) => resp,
-            Err(_) => return Ok(None),
-        };
-        if !response.status().is_success() {
-            // Keep compatibility with previous behavior: fallback to SDK static
-            // list when provider-side list endpoint is unavailable.
-            return Ok(None);
-        }
-
-        let payload = match response.json::<OpenAiModelsResponse>().await {
-            Ok(payload) => payload,
-            Err(_) => return Ok(None),
-        };
-        let provider = self.resolved.adapter.clone();
-        let models = payload
-            .data
-            .into_iter()
-            .map(|item| ModelInfo {
-                id: item.id.clone(),
-                name: item.id,
-                provider: provider.clone(),
-            })
-            .collect::<Vec<_>>();
-
-        Ok(Some(models))
     }
 
     pub async fn chat_completion(&self) -> Result<ChatResponse, LlmProbeError> {
@@ -523,72 +407,19 @@ fn map_genai_error(error: genai::Error) -> LlmProbeError {
     LlmProbeError::ApiError(error.to_string())
 }
 
-fn supports_live_models_endpoint(adapter: &str) -> bool {
-    matches!(
-        adapter,
-        "openai"
-            | "aliyun"
-            | "aihubmix"
-            | "deepseek"
-            | "xai"
-            | "groq"
-            | "cohere"
-            | "fireworks"
-            | "together"
-            | "zai"
-            | "mimo"
-            | "moonshot"
-            | "nebius"
-            | "github_copilot"
-            | "opencode_go"
-            | "open_router"
-            | "baidu"
-            | "bigmodel"
-    )
-}
-
-fn models_base_url_for(resolved: &ResolvedRuntimeConfig) -> Option<String> {
-    if let Some(url) = resolved
+fn model_list_provider_config(resolved: &ResolvedRuntimeConfig) -> ProviderConfig {
+    let endpoint = resolved
         .base_url
         .as_ref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-    {
-        return Some(url.to_string());
-    }
-
-    let default = match resolved.adapter.as_str() {
-        "openai" => Some("https://api.openai.com/v1"),
-        "aliyun" => Some("https://dashscope.aliyuncs.com/compatible-mode/v1/"),
-        "aihubmix" => Some("https://aihubmix.com/v1/"),
-        "deepseek" => Some("https://api.deepseek.com/v1"),
-        "xai" => Some("https://api.x.ai/v1"),
-        "groq" => Some("https://api.groq.com/openai/v1"),
-        "cohere" => Some("https://api.cohere.com/v2"),
-        "fireworks" => Some("https://api.fireworks.ai/inference/v1"),
-        "together" => Some("https://api.together.xyz/v1"),
-        "zai" => Some("https://api.z.ai/api/paas/v4"),
-        "mimo" => Some("https://api.xiaomimimo.com/v1/"),
-        "moonshot" => Some("https://api.moonshot.cn/v1/"),
-        "nebius" => Some("https://api.studio.nebius.ai/v1/"),
-        "github_copilot" => Some("https://models.github.ai/inference/"),
-        "opencode_go" => Some("https://opencode.ai/zen/go/v1/"),
-        "open_router" => Some("https://openrouter.ai/api/v1/"),
-        "baidu" => Some("https://qianfan.baidubce.com/v2/"),
-        "bigmodel" => Some("https://open.bigmodel.cn/api/paas/v4/"),
-        _ => None,
-    };
-    default.map(str::to_string)
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiModelsResponse {
-    data: Vec<OpenAiModelItem>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiModelItem {
-    id: String,
+        .map(|url| Endpoint::from_owned(url.clone()));
+    let auth = resolved.base_url.as_ref().map(|_| {
+        if resolved.api_key.is_empty() {
+            AuthData::None
+        } else {
+            AuthData::from_single(resolved.api_key.clone())
+        }
+    });
+    ProviderConfig::from((endpoint, auth))
 }
 
 #[cfg(test)]
@@ -666,37 +497,27 @@ mod tests {
     }
 
     #[test]
-    fn models_base_url_prefers_explicit_base_url() {
+    fn explicit_base_url_provider_config_overrides_endpoint_and_auth() {
         let mut cfg = resolved();
-        cfg.adapter = "aliyun".to_string();
         cfg.base_url = Some("https://example.com/v1/".to_string());
+        cfg.api_key = "test-key".to_string();
+
+        let provider_config = model_list_provider_config(&cfg);
         assert_eq!(
-            models_base_url_for(&cfg).as_deref(),
+            provider_config.endpoint.as_ref().map(Endpoint::base_url),
             Some("https://example.com/v1/")
         );
+        assert!(matches!(provider_config.auth, Some(AuthData::Key(_))));
     }
 
     #[test]
-    fn models_base_url_uses_builtin_default_for_aliyun() {
+    fn empty_key_with_explicit_base_url_uses_auth_none_override() {
         let mut cfg = resolved();
-        cfg.adapter = "aliyun".to_string();
-        cfg.base_url = None;
-        assert_eq!(
-            models_base_url_for(&cfg).as_deref(),
-            Some("https://dashscope.aliyuncs.com/compatible-mode/v1/")
-        );
-    }
+        cfg.base_url = Some("http://localhost:11434/v1/".to_string());
+        cfg.api_key.clear();
 
-    #[test]
-    fn live_models_support_matrix_includes_aliyun() {
-        assert!(supports_live_models_endpoint("aliyun"));
-        assert!(supports_live_models_endpoint("open_router"));
-        assert!(supports_live_models_endpoint("github_copilot"));
-        assert!(!supports_live_models_endpoint("anthropic"));
-        assert!(!supports_live_models_endpoint("vertex"));
-        assert!(!supports_live_models_endpoint("bedrock_api"));
-        assert!(!supports_live_models_endpoint("ollama_cloud"));
-        assert!(!supports_live_models_endpoint("minimax"));
+        let provider_config = model_list_provider_config(&cfg);
+        assert!(matches!(provider_config.auth, Some(AuthData::None)));
     }
 
     #[test]
@@ -749,11 +570,15 @@ mod tests {
         let request = server.await.expect("server task");
 
         assert!(request.starts_with("GET /v1/models HTTP/1.1"));
-        assert!(request.contains("Authorization: Bearer test-key"));
-        assert_eq!(
-            result.source.as_label(),
-            "provider /models endpoint (explicit base_url)"
+        let auth_found = request
+            .to_lowercase()
+            .contains("authorization: bearer test-key");
+        assert!(
+            auth_found,
+            "expected Authorization: Bearer test-key header, got request:\n{}",
+            request
         );
+        assert_eq!(result.source.as_label(), "genai client (explicit base_url)");
         assert_eq!(result.models.len(), 1);
         assert_eq!(result.models[0].id, "custom-model");
     }

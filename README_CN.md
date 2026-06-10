@@ -209,7 +209,7 @@ llmctl -c llm.yaml -P openai_main --adapter aliyun --message "你好"
 llmctl -c llm.yaml -l
 ```
 
-现在 `--list` 会额外打印模型列表来源，便于区分结果来自真实 provider `/models` 还是静态 fallback。
+现在 `--list` 会额外打印模型列表来源，便于区分结果来自显式自定义 `base_url` 路由，还是默认的 genai client 路由。
 
 #### 指定模型聊天
 

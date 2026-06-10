@@ -212,7 +212,7 @@ llmctl -c llm.yaml -P openai_main --adapter aliyun --message "你好"
 llmctl -c llm.yaml -l
 ```
 
-`--list` now prints the source of the returned catalog, so you can distinguish a live provider `/models` result from a static fallback.
+`--list` now prints the source of the returned catalog, so you can distinguish an explicit custom `base_url` route from the default genai client route.
 
 #### Chat with a Specific Model
 
